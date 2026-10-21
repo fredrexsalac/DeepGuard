@@ -1,0 +1,91 @@
+DeepGuard Deepfake Detection Models
+=====================================
+
+IMAGE MODEL
+-----------
+File        : deepguard_image.tflite
+Architecture: EfficientNetB0 + Hybrid CNN-RNN + Parallel Fusion + Neuro-Symbolic Reasoning
+Input       : [1, 128, 128, 3]  float32   (batch=1, H=128, W=128, C=3)
+              Pixel values in [0.0, 255.0]  — raw uint8 cast to float32, NO /255 division
+              Channel order: RGB
+              EfficientNetB0 contains its own internal Rescaling(1/255) layer that
+              performs normalization. Do NOT pre-divide by 255.0; doing so feeds
+              near-zero values to that layer and collapses all predictions to ~0 (Authentic).
+Output      : [1, 1]  float32
+              Scalar sigmoid probability in [0.0, 1.0]
+              >= 0.5  → Class 1 (Fake   → UI: MANIPULATED)
+              < 0.5   → Class 0 (Real   → UI: AUTHENTIC)
+Reported test accuracy (dataset-level evaluation): 84.82%
+
+VIDEO MODEL
+-----------
+File        : deepguard_video.tflite
+Architecture: EfficientNetB0 + Hybrid CNN-RNN + Parallel Fusion + Neuro-Symbolic Reasoning
+Input       : [1, 10, 128, 128, 3]  float32   (batch=1, frames=10, H=128, W=128, C=3)
+              Exactly 10 frames must be supplied.
+              Pixel values in [0.0, 255.0]  — raw uint8 cast to float32, NO /255 division
+              Channel order: RGB
+              Same EfficientNetB0 internal-rescaling rule as the image model applies.
+              Frame sampling: uniform across video duration (np.linspace equivalent).
+              If fewer than 10 readable frames exist, repeat the last valid frame.
+Output      : [1, 1]  float32
+              Scalar sigmoid probability in [0.0, 1.0]
+              >= 0.5  → Class 1 (Fake   → UI: MANIPULATED)
+              < 0.5   → Class 0 (Real   → UI: AUTHENTIC)
+Reported test accuracy (dataset-level evaluation): 71.67%
+
+CLASS MAPPING
+-------------
+Internal (model/dataset)   User-facing (Flutter UI)
+0 = Real               →   AUTHENTIC
+1 = Fake               →   MANIPULATED
+
+PREPROCESSING PIPELINE
+----------------------
+Image:
+  1. Load image file
+  2. Decode to RGB
+  3. Resize to 128 x 128  (bilinear / area interpolation)
+  4. Cast to float32  — pixel range remains [0.0, 255.0]
+  5. Shape: [1, 128, 128, 3]
+  ⚠  DO NOT divide by 255.0.  EfficientNetB0 rescales internally.
+
+Video:
+  1. Open video file
+  2. Determine total frame count
+  3. Select 10 uniformly-spaced frame indices
+  4. For each frame: decode → BGR→RGB conversion → resize 128x128 (INTER_AREA)
+                     → cast to float32  (range stays [0.0, 255.0])
+  5. Stack into shape: [1, 10, 128, 128, 3]
+  ⚠  DO NOT divide by 255.0.  EfficientNetB0 rescales internally.
+
+NOTE: Do not apply any additional normalisation (e.g. mean subtraction, std scaling).
+The models were trained with simple float32 cast only; EfficientNetB0 handles rescaling.
+
+TRAINING REFERENCE
+------------------
+Notebook Cell 18 (image preprocessing):
+  image = tf.io.decode_image(image_bytes, channels=3)
+  image = tf.image.resize(image, IMAGE_SIZE)
+  image = tf.cast(image, tf.float32)          # range [0, 255], no /255
+
+Notebook Cell 20 (video frame extraction):
+  frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+  frame = cv2.resize(frame, IMAGE_SIZE, interpolation=cv2.INTER_AREA)
+  frame = frame.astype(np.float32)            # range [0, 255], no /255
+
+TFLite Verification (Notebook Cell 78):
+  Image sample (real):  TFLite output = [[0.01436682]]  -> low / Real   (correct)
+  Video sample (real):  TFLite output = [[0.6448619]]   -> high / Fake  (FALSE POSITIVE)
+  Both tested WITHOUT any /255 division.
+
+VIDEO BRANCH CALIBRATION (dev audit, parity_video.py, balanced 300/300 set):
+  mean P(fake) on REAL clips ~ 0.43 ; on MANIPULATED clips ~ 0.57 (separation ~ 0.14).
+  The video model separates in the CORRECT direction but WEAKLY, so borderline
+  clips cross the 0.5 threshold in BOTH directions (false positives and false
+  negatives), consistent with the 71.67% video test accuracy.
+  VERIFIED NON-CAUSES: not hardcoding, not label inversion, not tensor layout,
+  not /255 scaling, not frame order, and NOT a Keras->TFLite conversion bug
+  (the exported .tflite matches the original .keras within ~0.01 on every clip).
+  Do NOT lower the threshold or flip labels to force an individual clip; the
+  honest remedy is retraining the temporal branch (see thesis limitations).

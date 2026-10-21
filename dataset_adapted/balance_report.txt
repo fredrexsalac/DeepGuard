@@ -1,0 +1,11 @@
+=== SPLIT / CLASS BALANCE ===
+  image train : real= 14401 fake= 14241 balance= 98.9%
+  image val   : real=  2866 fake=  2899 balance= 98.9%
+  image testA : real=  2761 fake=  2832 balance= 97.5%
+  video train : real=    44 fake=   406 balance= 10.8%
+  video val   : real=     6 fake=    54 balance= 11.1%
+  video testA : real=     9 fake=    81 balance= 11.1%
+
+=== PER-GENERATOR (train vs testB) ===
+  stylegan           train= 28642 testA= 5593 testB=    0
+  video_baseline     train=     0 testA=    0 testB=    0

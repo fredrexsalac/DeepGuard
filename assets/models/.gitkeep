@@ -1,0 +1,4 @@
+# Place your deepguard_model.tflite file here.
+# Expected path: assets/models/deepguard_model.tflite
+# Input shape:   [1, 128, 128, 3]  (float32, normalized 0-1)
+# Output shape:  [1, 2]            ([fake_probability, real_probability])

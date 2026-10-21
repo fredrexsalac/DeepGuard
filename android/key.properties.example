@@ -1,0 +1,24 @@
+# DeepGuard release signing configuration (TEMPLATE)
+# ---------------------------------------------------------------------------
+# Copy this file to `android/key.properties` and replace the placeholder
+# values with your real keystore details.
+#
+# IMPORTANT: `key.properties` and `*.keystore` / `*.jks` are already listed in
+# android/.gitignore — NEVER commit the real file or the keystore itself.
+#
+# Generate a keystore once with:
+#   keytool -genkey -v -keystore deepguard.keystore -alias deepguard \
+#           -keyalg RSA -keysize 2048 -validity 10000
+# ---------------------------------------------------------------------------
+
+# Path to the keystore, relative to the android/ directory (or absolute).
+storeFile=deepguard.keystore
+
+# The keystore password you chose when generating it.
+storePassword=CHANGE_ME_STORE_PASSWORD
+
+# The key alias inside the keystore.
+keyAlias=deepguard
+
+# The key password (often the same as storePassword).
+keyPassword=CHANGE_ME_KEY_PASSWORD
