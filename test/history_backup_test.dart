@@ -117,6 +117,29 @@ void main() {
     expect(svc.activeProfile!.id, profile.id);
   });
 
+  test('a restored record keeps its full report even though its media is gone',
+      () async {
+    // After a wipe or reinstall the analysed file is no longer on the device,
+    // but the record must still stand on its own: the result screen replays the
+    // verdict, confidence, date and provenance from the stored entry. Only the
+    // preview is lost. This is the invariant _viewResult relies on when it opens
+    // the report for a record whose file is missing.
+    final profile = svc.activeProfile!;
+    await svc.saveHistoryEntry(profile.id,
+        entry('a', model: 'DALL·E 3 / GPT-4o image output (OpenAI)'));
+    final text = jsonEncode(await backup.buildBackup());
+
+    await reinstall(freshProfileId: 'fresh-profile-preview');
+    await backup.importFromJsonText(text);
+
+    final restored = (await svc.getHistory(profile.id)).single;
+    expect(restored.fileExists, isFalse);
+    expect(restored.detectionResult, 'manipulated');
+    expect(restored.confidence, 0.875);
+    expect(restored.resultLabel, isNotEmpty);
+    expect(restored.provenance!.generatorModel, contains('DALL·E 3'));
+  });
+
   test('importing the same backup twice adds nothing', () async {
     final profile = svc.activeProfile!;
     await svc.saveHistoryEntry(profile.id, entry('a'));

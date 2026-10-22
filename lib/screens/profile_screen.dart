@@ -110,7 +110,11 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   void _viewResult(HistoryEntry entry) {
-    if (!entry.fileExists) { _showFileGone(); return; }
+    // Deliberately NOT gated on entry.fileExists. The record itself carries the
+    // verdict, confidence, date and provenance snapshot, so the report must stay
+    // readable after a data wipe or a restore from backup, when only the media
+    // file is gone. ResultScreen degrades the preview to a placeholder in that
+    // case. Re-analysis is the operation that genuinely needs the file.
     final result = PredictionResult(
       id: entry.id,
       filePath: entry.filePath,

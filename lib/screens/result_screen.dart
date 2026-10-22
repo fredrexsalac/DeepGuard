@@ -493,10 +493,32 @@ class ResultScreen extends StatelessWidget {
                                     : _InlineVideoPlayer(filePath: filePath))
                                 : Container(
                                     color: DeepGuardColors.surfaceDark,
-                                    child: const Center(
-                                      child: Icon(Icons.broken_image,
-                                          color: DeepGuardColors.textMuted,
-                                          size: 40),
+                                    padding: const EdgeInsets.all(16),
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.broken_image,
+                                              color: DeepGuardColors.textMuted,
+                                              size: 36),
+                                          const SizedBox(height: 10),
+                                          Text(
+                                            // A history record's own data is intact; only the
+                                            // media file is missing, so say which of the two this
+                                            // screen still shows.
+                                            isHistory
+                                                ? 'Media file not on this device.\n'
+                                                    'The report below is replayed from your saved record.'
+                                                : 'The media file could not be read.',
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              color: DeepGuardColors.textMuted,
+                                              fontSize: 11,
+                                              height: 1.4,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                           ),
