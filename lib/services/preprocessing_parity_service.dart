@@ -1,4 +1,4 @@
-import 'dart:developer' as dev;
+import 'app_log.dart' as dev;
 import 'dart:io';
 import 'dart:typed_data';
 

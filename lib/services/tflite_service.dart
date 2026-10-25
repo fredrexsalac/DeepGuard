@@ -1,4 +1,4 @@
-import 'dart:developer' as dev;
+import 'app_log.dart' as dev;
 import 'dart:typed_data';
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as img;

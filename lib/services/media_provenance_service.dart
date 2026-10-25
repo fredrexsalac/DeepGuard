@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:developer' as dev;
+import 'app_log.dart' as dev;
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -455,7 +455,14 @@ class MediaProvenanceService {
                 ? make.toUpperCase()
                 : make[0].toUpperCase() + make.substring(1);
             detectedApp = '$displayName Camera Capture';
-            evidence.add('Genuine physical sensor hardware tag ($displayName) identified in EXIF');
+            // Wording is deliberately scoped to the DEVICE, not the CONTENT.
+            // An EXIF Make/Model tag proves which hardware wrote the file — it
+            // says nothing about what the file depicts. A photograph of a
+            // monitor, or of a printed picture, carries an equally "genuine"
+            // camera tag, so calling the sensor "genuine" previously read as a
+            // clean bill of health for content that may be entirely synthetic.
+            evidence.add('EXIF hardware tag ($displayName) identifies the '
+                'capture device — not the depicted scene');
             cameraHardware = make.toUpperCase();
             break;
           }
