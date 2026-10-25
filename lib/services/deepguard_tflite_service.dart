@@ -1,11 +1,12 @@
-import 'dart:developer' as dev;
+import 'app_log.dart' as dev;
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
-import 'package:tflite_flutter/tflite_flutter.dart';
 
 import '../models/deepguard_detection_result.dart';
 import '../screens/upload_screen.dart' show MediaSource;
+import 'inference_isolate.dart';
+import 'inference_tensor.dart';
 
 /// DeepGuardTFLiteService
 ///
@@ -53,18 +54,45 @@ import '../screens/upload_screen.dart' show MediaSource;
 ///       POSITIVE: the video branch is weakly calibrated, NOT inverted. The
 ///       deployed .tflite matches the original .keras within ~0.01, so this is
 ///       a model-quality limit, not a pipeline/conversion bug.)
+///
+/// ─── THREADING ─────────────────────────────────────────────────────────────
+///
+///   Inference runs on a background isolate ([InferenceIsolate]); this class
+///   does no native work itself. What STILL executes on the calling isolate,
+///   and is therefore the next thing to move if frame drops persist:
+///
+///     1. img.decodeImage() in AIService — a full JPEG decode of a ~12MP
+///        camera frame. The single largest main-thread cost in the pipeline.
+///     2. InferenceTensors.resizeForImage() here — a whole-frame downscale.
+///     3. FaceCropService's copyCrop() — a large region copy.
+///
+///   (1) and (2) can be collapsed by handing raw bytes to the worker and
+///   decoding there, but that requires the ML Kit face box to be computed from
+///   the same bytes first, which changes the crop path's EXIF assumptions.
+///   Deliberately not done here: it is a behaviour change to the face crop,
+///   and the crop has not yet been observed on a device.
 class DeepGuardTFLiteService {
   // ── Asset paths ────────────────────────────────────────────────────────────
   static const String _imageModelAsset = 'assets/models/deepguard_image.tflite';
   static const String _videoModelAsset = 'assets/models/deepguard_video.tflite';
 
   // ── Model dimensions ───────────────────────────────────────────────────────
-  static const int imgSize    = 128;
-  static const int videoFrames = 10;
+  // Owned by InferenceTensors so the buffer layout and these constants cannot
+  // drift apart. Re-exported here because callers (preprocessing_parity_service
+  // and friends) already reference them through this class.
+  static const int imgSize     = InferenceTensors.imgSize;
+  static const int videoFrames = InferenceTensors.videoFrames;
 
-  // ── Interpreters ───────────────────────────────────────────────────────────
-  Interpreter? _imageInterpreter;
-  Interpreter? _videoInterpreter;
+  // ── Inference worker ───────────────────────────────────────────────────────
+  // The interpreters deliberately do NOT live here. A synchronous native run on
+  // the root isolate blocks the Android platform thread for its entire
+  // duration, which shows up in logcat as:
+  //     I/Choreographer: Skipped 58 frames! The application may be doing too
+  //                      much work on its main thread.
+  // inference_isolate.dart owns both interpreters on a background isolate; see
+  // its comment for why the worker builds them itself rather than receiving an
+  // Interpreter.fromAddress handle (shared native object = use-after-free risk).
+  final InferenceIsolate _worker = InferenceIsolate.instance;
 
   bool _imageReady = false;
   bool _videoReady = false;
@@ -81,58 +109,40 @@ class DeepGuardTFLiteService {
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
+  /// Starts the inference worker and loads both models inside it.
+  ///
+  /// Throws if a model cannot be loaded. That must stay fatal: a pipeline that
+  /// never reached the weights has no business reporting "Authentic".
   Future<void> loadModels() async {
-    await _loadImageModel();
-    await _loadVideoModel();
+    await _worker.start(
+      imageAsset: _imageModelAsset,
+      videoAsset: _videoModelAsset,
+    );
+    _imageReady = true;
+    _videoReady = true;
+    dev.log('[DeepGuard] Both models loaded on the inference isolate.',
+        name: 'DeepGuard');
   }
 
   Future<void> _loadImageModel() async {
-    if (_imageReady && _imageInterpreter != null) return;
-    try {
-      final opts = InterpreterOptions()..threads = 2;
-      _imageInterpreter = await Interpreter.fromAsset(
-          _imageModelAsset, options: opts);
-      _imageInterpreter!.allocateTensors();
-      _imageReady = true;
-      dev.log('[DeepGuard] Image model loaded | '
-          'IN=${_imageInterpreter!.getInputTensor(0).shape}  '
-          'OUT=${_imageInterpreter!.getOutputTensor(0).shape}',
-          name: 'DeepGuard');
-    } catch (e, st) {
-      _imageReady = false;
-      dev.log('[DeepGuard] Image model load FAILED: $e\n$st',
-          name: 'DeepGuard');
-      rethrow;
-    }
+    if (_imageReady && _worker.isRunning) return;
+    await loadModels();
   }
 
   Future<void> _loadVideoModel() async {
-    if (_videoReady && _videoInterpreter != null) return;
-    try {
-      final opts = InterpreterOptions()..threads = 2;
-      _videoInterpreter = await Interpreter.fromAsset(
-          _videoModelAsset, options: opts);
-      _videoInterpreter!.allocateTensors();
-      _videoReady = true;
-      dev.log('[DeepGuard] Video model loaded | '
-          'IN=${_videoInterpreter!.getInputTensor(0).shape}  '
-          'OUT=${_videoInterpreter!.getOutputTensor(0).shape}',
-          name: 'DeepGuard');
-    } catch (e, st) {
-      _videoReady = false;
-      dev.log('[DeepGuard] Video model load FAILED: $e\n$st',
-          name: 'DeepGuard');
-      rethrow;
-    }
+    if (_videoReady && _worker.isRunning) return;
+    await loadModels();
   }
 
   void disposeModels() {
-    _imageInterpreter?.close();
-    _imageInterpreter = null;
     _imageReady = false;
-    _videoInterpreter?.close();
-    _videoInterpreter = null;
     _videoReady = false;
+    // Not awaited: this sits on synchronous teardown paths. The worker closes
+    // its own interpreters, and a failure here is logged rather than thrown.
+    _worker.shutdown().catchError((Object e) {
+      dev.log('[DeepGuard] inference isolate shutdown failed: $e',
+          name: 'DeepGuard');
+    });
     dev.log('[DeepGuard] Models disposed.', name: 'DeepGuard');
   }
 
@@ -164,21 +174,16 @@ class DeepGuardTFLiteService {
       final origChannels = rawImage.numChannels;
 
       // Resize to 128×128  (average ≈ cv2.INTER_AREA — matches training Cell 18)
-      final resized = img.copyResize(
-        rawImage,
-        width: imgSize,
-        height: imgSize,
-        interpolation: img.Interpolation.average,
-      );
+      // and build the raw float32 [0.0, 255.0] buffer. These stay on the calling
+      // isolate; only the native run moves off it. copyResize of a full-size
+      // camera frame is itself a main-thread cost and is the known remaining
+      // blocker — see "WHAT STILL BLOCKS THE UI THREAD" in the class comment.
+      final resized = InferenceTensors.resizeForImage(rawImage);
+      final input   = InferenceTensors.imageFlat(resized);
 
-      // Build [1, 128, 128, 3] tensor — raw float32, range [0.0, 255.0]
-      final input  = _buildImageTensor(resized);
-      final output = List.generate(1, (_) => List<double>.filled(1, 0.0));
+      final outcome = await _worker.runImage(input);
 
-      _imageInterpreter!.run(input, output);
-
-      final fakeProbability =
-          (output[0][0] as num).toDouble().clamp(0.0, 1.0);
+      final fakeProbability = outcome.fakeProbability.clamp(0.0, 1.0);
       final latencyMs = DateTime.now().millisecondsSinceEpoch - start;
       final isFake = fakeProbability >= 0.5;
       final confidence = isFake ? fakeProbability : (1.0 - fakeProbability);
@@ -207,7 +212,9 @@ class DeepGuardTFLiteService {
         ' 14.  predictedClass      : ${isFake ? "Fake" : "Real"}  (Real=0  Fake=1)\n'
         ' 15.  displayLabel        : ${isFake ? "MANIPULATED" : "AUTHENTIC"}\n'
         '      confidence          : ${(confidence * 100).toStringAsFixed(2)}%\n'
-        '      latencyMs           : ${latencyMs}ms',
+        '      latencyMs           : ${latencyMs}ms  (wall clock, includes '
+        'resize + isolate handoff)\n'
+        '      nativeMicros        : ${outcome.nativeMicros}µs  (invoke() only)',
         name: 'DeepGuard',
       );
 
@@ -253,26 +260,20 @@ class DeepGuardTFLiteService {
       final origW = sequence[0].width;
       final origH = sequence[0].height;
 
-      // Build [1, 10, 128, 128, 3] tensor — raw float32, range [0.0, 255.0]
-      final input  = _buildVideoTensor(sequence);
-      final output = List.generate(1, (_) => List<double>.filled(1, 0.0));
+      // Build the [1, 10, 128, 128, 3] raw float32 [0.0, 255.0] buffer, then
+      // run it on the inference isolate.
+      final input   = InferenceTensors.videoFlat(sequence);
+      final outcome = await _worker.runVideo(input);
 
-      _videoInterpreter!.run(input, output);
-
-      final fakeProbability =
-          (output[0][0] as num).toDouble().clamp(0.0, 1.0);
+      final fakeProbability = outcome.fakeProbability.clamp(0.0, 1.0);
       final latencyMs = DateTime.now().millisecondsSinceEpoch - start;
       final isFake = fakeProbability >= 0.5;
       final confidence = isFake ? fakeProbability : (1.0 - fakeProbability);
 
       // ── FULL DIAGNOSTIC LOG (all 15 required fields) ──────────────────────
       // Sample pixel from frame 0 to confirm range is [0, 255] not [0, 1].
-      // Note: _buildVideoTensor resizes internally; sample from the already-
-      // resized result by using an intermediate crop.
-      final resizedFrame0 = img.copyResize(
-        sequence[0], width: imgSize, height: imgSize,
-        interpolation: img.Interpolation.average,
-      );
+      // videoFlat resizes internally, so the sample needs its own resize.
+      final resizedFrame0 = InferenceTensors.resizeForImage(sequence[0]);
       final sp = resizedFrame0.getPixel(64, 64);
 
       dev.log(
@@ -294,7 +295,9 @@ class DeepGuardTFLiteService {
         ' 15.  predictedClass      : ${isFake ? "Fake" : "Real"}  (Real=0  Fake=1)\n'
         '      displayLabel        : ${isFake ? "MANIPULATED" : "AUTHENTIC"}\n'
         '      confidence          : ${(confidence * 100).toStringAsFixed(2)}%\n'
-        '      latencyMs           : ${latencyMs}ms',
+        '      latencyMs           : ${latencyMs}ms  (wall clock, includes '
+        'frame resize + isolate handoff)\n'
+        '      nativeMicros        : ${outcome.nativeMicros}µs  (invoke() only)',
         name: 'DeepGuard',
       );
 
@@ -309,56 +312,12 @@ class DeepGuardTFLiteService {
   }
 
   // ── Tensor builders ────────────────────────────────────────────────────────
-
-  /// Builds [1, 128, 128, 3] float32 tensor.
-  ///
-  /// ⚠️  Pixel values are in [0.0, 255.0] — NOT divided by 255.
-  ///     EfficientNetB0 has its own internal Rescaling(1/255) layer.
-  ///     Dividing here would give the model near-zero inputs and
-  ///     collapse all predictions to ~0 (Authentic).
-  List<List<List<List<double>>>> _buildImageTensor(img.Image frame) {
-    return [
-      List.generate(imgSize, (y) =>
-        List.generate(imgSize, (x) {
-          final p = frame.getPixel(x, y);
-          // Raw uint8 → float32, range [0.0, 255.0]
-          return [
-            p.r.toInt().clamp(0, 255).toDouble(),
-            p.g.toInt().clamp(0, 255).toDouble(),
-            p.b.toInt().clamp(0, 255).toDouble(),
-          ];
-        }),
-      ),
-    ];
-  }
-
-  /// Builds [1, 10, 128, 128, 3] float32 tensor.
-  ///
-  /// ⚠️  Same no-normalization rule as _buildImageTensor.
-  List<List<List<List<List<double>>>>> _buildVideoTensor(
-      List<img.Image> frames) {
-    return [
-      List.generate(videoFrames, (f) {
-        final resized = img.copyResize(
-          frames[f],
-          width: imgSize,
-          height: imgSize,
-          interpolation: img.Interpolation.average, // matches INTER_AREA
-        );
-        return List.generate(imgSize, (y) =>
-          List.generate(imgSize, (x) {
-            final p = resized.getPixel(x, y);
-            // Raw uint8 → float32, range [0.0, 255.0]
-            return [
-              p.r.toInt().clamp(0, 255).toDouble(),
-              p.g.toInt().clamp(0, 255).toDouble(),
-              p.b.toInt().clamp(0, 255).toDouble(),
-            ];
-          }),
-        );
-      }),
-    ];
-  }
+  //
+  // Moved to InferenceTensors (lib/services/inference_tensor.dart). They had to
+  // leave this file so they can be unit-tested: inference_tensor.dart imports
+  // nothing from tflite_flutter, whereas the native library cannot be loaded at
+  // all under `flutter test` on the host. The layout contract (NHWC row-major,
+  // raw [0,255], no /255) is documented there.
 
   // ── Diagnostic mode ────────────────────────────────────────────────────────
 
@@ -382,29 +341,25 @@ class DeepGuardTFLiteService {
     final isImage = image != null;
     final mediaType = isImage ? 'image' : 'video';
 
-    // ── Build the tensor using the exact same path as analyzeImage/analyzeVideo
+    // ── Build the tensor through the exact same path as analyzeImage/
+    //    analyzeVideo, then reuse that single buffer for both the pixel audit
+    //    and the run. The previous version built it twice: once flat for the
+    //    audit and once as a nested list for the interpreter.
     late final Float32List flat;
     late final List<int> tensorShape;
 
-    if (isImage) {
+    if (image != null) {
       if (!_imageReady) await _loadImageModel();
-      final resized = img.copyResize(
-        image,
-        width: imgSize,
-        height: imgSize,
-        interpolation: img.Interpolation.average,
-      );
-      tensorShape = [1, imgSize, imgSize, 3];
-      flat = _imageToFlat(resized);
+      tensorShape = const [1, imgSize, imgSize, 3];
+      flat = InferenceTensors.imageFlat(InferenceTensors.resizeForImage(image));
     } else {
       if (!_videoReady) await _loadVideoModel();
       final padded = List<img.Image>.from(videoFrameList!);
       while (padded.length < videoFrames) {
         padded.add(padded.last);
       }
-      final sequence = padded.sublist(0, videoFrames);
-      tensorShape = [1, videoFrames, imgSize, imgSize, 3];
-      flat = _videoToFlat(sequence);
+      tensorShape = const [1, videoFrames, imgSize, imgSize, 3];
+      flat = InferenceTensors.videoFlat(padded.sublist(0, videoFrames));
     }
 
     // ── Pixel range audit
@@ -414,27 +369,12 @@ class DeepGuardTFLiteService {
       if (v > maxVal) maxVal = v;
     }
 
-    // ── Run actual inference
+    // ── Run actual inference on the worker isolate
     final start = DateTime.now().millisecondsSinceEpoch;
-    double rawOutput;
-
-    if (isImage) {
-      final input  = _buildImageTensor(
-        img.copyResize(image, width: imgSize, height: imgSize,
-            interpolation: img.Interpolation.average));
-      final output = List.generate(1, (_) => List<double>.filled(1, 0.0));
-      _imageInterpreter!.run(input, output);
-      rawOutput = (output[0][0] as num).toDouble().clamp(0.0, 1.0);
-    } else {
-      final padded = List<img.Image>.from(videoFrameList!);
-      while (padded.length < videoFrames) {
-        padded.add(padded.last);
-      }
-      final input  = _buildVideoTensor(padded.sublist(0, videoFrames));
-      final output = List.generate(1, (_) => List<double>.filled(1, 0.0));
-      _videoInterpreter!.run(input, output);
-      rawOutput = (output[0][0] as num).toDouble().clamp(0.0, 1.0);
-    }
+    final outcome = isImage
+        ? await _worker.runImage(flat)
+        : await _worker.runVideo(flat);
+    final rawOutput = outcome.fakeProbability.clamp(0.0, 1.0);
 
     final latencyMs = DateTime.now().millisecondsSinceEpoch - start;
     final isFake    = rawOutput >= 0.5;
@@ -453,6 +393,7 @@ class DeepGuardTFLiteService {
       predictedClass     : isFake ? 'Fake' : 'Real',
       displayedConfidence: '${(confidence * 100).toStringAsFixed(2)}%',
       latencyMs          : latencyMs,
+      nativeMicros       : outcome.nativeMicros,
     );
 
     // Write full diagnostic to developer log
@@ -469,43 +410,6 @@ class DeepGuardTFLiteService {
     }
 
     return report;
-  }
-
-  // ── Flat tensor helpers (diagnostic only) ─────────────────────────────────
-
-  /// Flattens a resized [img.Image] to a Float32List in [0,255] range.
-  Float32List _imageToFlat(img.Image frame) {
-    final out = Float32List(imgSize * imgSize * 3);
-    int idx = 0;
-    for (int y = 0; y < imgSize; y++) {
-      for (int x = 0; x < imgSize; x++) {
-        final p = frame.getPixel(x, y);
-        out[idx++] = p.r.toInt().clamp(0, 255).toDouble();
-        out[idx++] = p.g.toInt().clamp(0, 255).toDouble();
-        out[idx++] = p.b.toInt().clamp(0, 255).toDouble();
-      }
-    }
-    return out;
-  }
-
-  /// Flattens a 10-frame video sequence to a Float32List in [0,255] range.
-  Float32List _videoToFlat(List<img.Image> frames) {
-    final out = Float32List(videoFrames * imgSize * imgSize * 3);
-    int idx = 0;
-    for (int f = 0; f < videoFrames; f++) {
-      final resized = img.copyResize(frames[f],
-          width: imgSize, height: imgSize,
-          interpolation: img.Interpolation.average);
-      for (int y = 0; y < imgSize; y++) {
-        for (int x = 0; x < imgSize; x++) {
-          final p = resized.getPixel(x, y);
-          out[idx++] = p.r.toInt().clamp(0, 255).toDouble();
-          out[idx++] = p.g.toInt().clamp(0, 255).toDouble();
-          out[idx++] = p.b.toInt().clamp(0, 255).toDouble();
-        }
-      }
-    }
-    return out;
   }
 }
 
@@ -529,6 +433,12 @@ class DeepGuardTFLiteService {
 ///   8.  threshold          — 0.5
 ///   9.  predictedClass     — 'Real' or 'Fake'
 ///   10. displayedConfidence — e.g. '87.45%'
+///
+/// [nativeMicros] is an addition beyond those ten: the time spent strictly
+/// inside `invoke()` on the inference isolate. [latencyMs] is wall clock and
+/// therefore also covers resize, buffer marshalling and the isolate handoff.
+/// Keeping both means a slower UI never silently changes the model-cost figure
+/// quoted in the thesis.
 class InferenceDiagnosticReport {
   final String mediaType;
   final List<int> inputTensorShape;
@@ -542,6 +452,7 @@ class InferenceDiagnosticReport {
   final String predictedClass;
   final String displayedConfidence;
   final int latencyMs;
+  final int? nativeMicros;
 
   const InferenceDiagnosticReport({
     required this.mediaType,
@@ -556,10 +467,16 @@ class InferenceDiagnosticReport {
     required this.predictedClass,
     required this.displayedConfidence,
     required this.latencyMs,
+    this.nativeMicros,
   });
 
   /// Pretty-prints the full diagnostic as a single log-friendly string.
-  String toLogString() => '''
+  String toLogString() {
+    final micros = nativeMicros;
+    final nativeLine = micros == null
+        ? ''
+        : '\n║     nativeMicros      : $micros µs (invoke() only)';
+    return '''
 ╔══════════════════════════════════════════════════════════════
 ║  DeepGuard Inference Diagnostic
 ╠══════════════════════════════════════════════════════════════
@@ -575,8 +492,9 @@ class InferenceDiagnosticReport {
 ║  8. threshold           : $threshold
 ║  9. predictedClass      : $predictedClass
 ║ 10. displayedConfidence : $displayedConfidence
-║     latencyMs           : ${latencyMs}ms
+║     latencyMs           : ${latencyMs}ms$nativeLine
 ╚══════════════════════════════════════════════════════════════''';
+  }
 
   @override
   String toString() => toLogString();
