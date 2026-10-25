@@ -70,3 +70,22 @@ assets/models/*.keras
 .kiro/
 .dist/
 __pycache__/
+
+# ── Thesis scratch and device-pulled media: never committed ──────────────────
+# Everything prefixed "_" is a throwaway probe, its captured output, or a
+# diagnostic panel. The Python probes run from the Django virtualenv against
+# the deployed .tflite and are reproducible, so they carry no history value.
+#
+# _fbdev/ is the serious one: images pulled out of the phone's private app
+# cache with `run-as`. They are photographs of a laptop screen and therefore
+# contain legible browser tabs, URLs and taskbar content, and the folder also
+# holds the counterpart of the user's full analysis history. Nothing in here
+# should ever reach a remote, public or otherwise.
+_*.py
+_*.txt
+_*.png
+_*.jpg
+_*.xml
+_fbdev/
+_cam_out/
+probe_samples/
