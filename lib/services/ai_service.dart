@@ -1,12 +1,14 @@
-import 'dart:developer' as dev;
+import 'app_log.dart' as dev;
 import 'dart:io';
 
 import 'package:image/image.dart' as img;
 
 import '../models/prediction_result.dart';
 import '../models/deepguard_detection_result.dart';
+import '../models/analysis_framing.dart';
 import '../screens/upload_screen.dart' show MediaSource;
 import 'deepguard_tflite_service.dart';
+import 'face_crop_service.dart';
 import 'video_frame_extractor_service.dart';
 
 /// AIService
@@ -19,10 +21,17 @@ import 'video_frame_extractor_service.dart';
 /// Both camera-captured and gallery-selected media arrive here as a saved
 /// file path and follow exactly the same preprocessing path:
 ///   File.readAsBytes → img.decodeImage (auto-applies EXIF rotation)
+///     → FaceCropService.frameForAnalysis  (IMAGE branch only: the largest
+///       detected face is cropped to a square; no face / no ML Kit on this
+///       platform keeps the whole frame)
 ///     → DeepGuardTFLiteService.analyzeImage
 ///       → copyResize(128×128, Interpolation.average)  [≡ cv2.INTER_AREA]
 ///       → _buildImageTensor  (raw float32, range [0, 255], NO /255)
 ///       → TFLite run
+///
+/// VIDEO IS DELIBERATELY NOT CROPPED. Its DFD source clips were never checked
+/// for face-vs-full framing, so the temporal branch keeps the whole-frame path
+/// it was validated on instead of inheriting an unproven assumption.
 ///
 /// The [source] parameter ([MediaSource.camera] or [MediaSource.gallery]) is
 /// used ONLY for diagnostic logging. It never influences the classification.
@@ -90,11 +99,26 @@ class AIService {
         name: 'DeepGuard',
       );
 
-      final tfliteResult = await _tflite.analyzeImage(decoded, source: source);
+      // Frame the classifier on the detected face. Every training image was a
+      // 256×256 square with the face filling it, so a wide photo has to be
+      // cropped BEFORE the 128×128 resize or the face arrives a few pixels
+      // across and its artifacts are already gone. The deployed model itself is
+      // untouched, and this never blocks analysis: no face, or no ML Kit on
+      // this platform, falls back to the whole frame exactly as before.
+      final framing = await FaceCropService().frameForAnalysis(
+        filePath: filePath,
+        decoded: decoded,
+      );
+
+      final tfliteResult =
+          await _tflite.analyzeImage(framing.image, source: source);
 
       dev.log(
         '[AIService][IMAGE] ── OUTPUT ─────────────────────────────────\n'
         '  source            : $sourceLabel\n'
+        '  framing           : ${framing.applied ? 'FACE CROP ${framing.crop} of ${decoded.width}x${decoded.height}' : 'WHOLE FRAME (${framing.note})'}\n'
+        '  facesDetected     : ${framing.faceCount}\n'
+        '  analysedByModel   : ${framing.image.width}x${framing.image.height}\n'
         '  rawTFLiteOutput   : ${tfliteResult.fakeProbability.toStringAsFixed(6)}\n'
         '  threshold         : 0.5\n'
         '  predictedClass    : ${tfliteResult.internalClassName}\n'
@@ -103,7 +127,8 @@ class AIService {
         name: 'DeepGuard',
       );
 
-      return _toPredictionResult(id, filePath, MediaType.image, tfliteResult);
+      return _toPredictionResult(id, filePath, MediaType.image, tfliteResult,
+          framing: framing.toFraming());
     } catch (e, st) {
       dev.log('[AIService] predictImage ERROR: $e\n$st', name: 'DeepGuard');
       return _errorResult(id, filePath, MediaType.image,
@@ -188,8 +213,9 @@ class AIService {
     String id,
     String filePath,
     MediaType type,
-    DeepGuardDetectionResult r,
-  ) {
+    DeepGuardDetectionResult r, {
+    AnalysisFraming? framing,
+  }) {
     return PredictionResult(
       id: id,
       filePath: filePath,
@@ -199,6 +225,9 @@ class AIService {
           ? DetectionResult.manipulated
           : DetectionResult.authentic,
       confidence: r.confidence,
+      // Video passes nothing: the temporal branch analyses whole frames by
+      // design, so there is no crop to report and inventing one would be a lie.
+      framing: framing,
     );
   }
 

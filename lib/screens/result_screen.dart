@@ -10,6 +10,8 @@ import '../models/prediction_result.dart';
 import '../models/provenance_snapshot.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/confidence_gauge.dart';
+import '../widgets/framing_evidence_overlay.dart';
+import '../widgets/outcome_declaration.dart';
 import '../services/media_provenance_service.dart';
 import '../services/profile_service.dart';
 
@@ -44,6 +46,11 @@ class ResultScreen extends StatelessWidget {
   /// fresh/live analysis.
   final ProvenanceSnapshot? historyProvenance;
 
+  /// What the user already declared about this record's media — 'authentic',
+  /// 'manipulated', or null. Only ever set when replaying from history, so a
+  /// live analysis opens on the question rather than on an answer.
+  final String? historyDeclaredTruth;
+
   const ResultScreen({
     super.key,
     required this.result,
@@ -52,6 +59,7 @@ class ResultScreen extends StatelessWidget {
     required this.onGoHome,
     this.isHistory = false,
     this.historyProvenance,
+    this.historyDeclaredTruth,
   });
 
   // ── Derived display values ─────────────────────────────────────────────────
@@ -76,6 +84,14 @@ class ResultScreen extends StatelessWidget {
   bool get _isAuthentic => result.result == DetectionResult.authentic;
   bool get _isError     => result.status == PredictionStatus.error;
   bool get _isImage     => result.mediaType == MediaType.image;
+
+  /// The verdict in the same vocabulary a history record stores, so the
+  /// self-reported outcome below and the saved record speak one language.
+  /// Null for an error verdict, which has nothing to score.
+  String? get _verdictKey {
+    if (result.result == null) return null;
+    return _isAuthentic ? 'authentic' : 'manipulated';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -489,7 +505,11 @@ class ResultScreen extends StatelessWidget {
                             width: double.infinity,
                             child: file.existsSync()
                                 ? (_isImage
-                                    ? Image.file(file, fit: BoxFit.contain)
+                                    ? FramingEvidenceOverlay(
+                                        framing: result.framing,
+                                        child: Image.file(file,
+                                            fit: BoxFit.contain),
+                                      )
                                     : _InlineVideoPlayer(filePath: filePath))
                                 : Container(
                                     color: DeepGuardColors.surfaceDark,
@@ -522,6 +542,23 @@ class ResultScreen extends StatelessWidget {
                                     ),
                                   ),
                           ),
+                        ),
+                        // ── Framing evidence ────────────────────────────────
+                        // Never separate the legend from the overlay: the boxes
+                        // alone are exactly the ambiguity that would let a face
+                        // rectangle be read as a manipulation location.
+                        FramingEvidenceLegend(
+                          framing: result.framing,
+                          mutedColor: DeepGuardColors.textMuted,
+                        ),
+                        // ── Self-reported outcome ───────────────────────────
+                        // The other half of the record: what the user says the
+                        // media actually is. Sits here, under the media it
+                        // describes, and never near the verdict it is scoring.
+                        OutcomeDeclarationSection(
+                          entryId: result.id,
+                          detectionResult: _verdictKey,
+                          initialDeclaredTruth: historyDeclaredTruth,
                         ),
                       ],
                     ),
@@ -989,6 +1026,10 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
     final profile = svc.activeProfile;
     if (profile == null) return;
     svc.updateHistoryProvenance(profile.id, widget.entryId!, snap);
+    // The same settled snapshot is the only moment the app holds independent
+    // evidence about this file, so it is also the only moment the derived
+    // declaration rule can run. It no-ops on any record a human has answered.
+    svc.applyAutoDeclaration(profile.id, widget.entryId!, snap);
   }
 
   @override
@@ -1605,6 +1646,26 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
                 ),
               ),
               const SizedBox(height: 8),
+
+              // Scope line for camera-tagged media. An EXIF hardware tag proves
+              // which device WROTE the file; it cannot prove what the file
+              // SHOWS. Without this line the card read as corroboration that a
+              // photo-of-a-screen was an authentic scene — the exact failure a
+              // reshoot of a generated image produced on a real device.
+              if (report.isCameraOriginal) ...[
+                Text(
+                  'Confirms the capture device only. A photograph of a screen '
+                  'or of a printed image carries the same genuine tag, so this '
+                  'does not certify the scene as real.',
+                  style: TextStyle(
+                    color: DeepGuardColors.textMuted.withAlpha(220),
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
 
               // Architecture family line for AI-attributed media.
               if (report.isAiGenerated && report.generatorFamily != null) ...[

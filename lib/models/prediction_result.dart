@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import 'analysis_framing.dart';
 
 enum MediaType { image, video }
 enum PredictionStatus { pending, processing, completed, error }
@@ -15,6 +16,12 @@ class PredictionResult {
   final String? errorMessage;
   final DateTime timestamp;
 
+  /// What the classifier was actually shown — the detected face and the square
+  /// cropped and resized to 128x128. Null for video (the temporal branch runs
+  /// on whole frames by design) and for legacy replays saved before framing was
+  /// recorded. See [AnalysisFraming] for why the distinction matters.
+  final AnalysisFraming? framing;
+
   PredictionResult({
     required this.id,
     this.filePath,
@@ -23,6 +30,7 @@ class PredictionResult {
     this.result,
     this.confidence = 0.0,
     this.errorMessage,
+    this.framing,
     DateTime? timestamp,
   }) : timestamp = timestamp ?? DateTime.now();
 
@@ -61,6 +69,7 @@ class PredictionResult {
     DetectionResult? result,
     double? confidence,
     String? errorMessage,
+    AnalysisFraming? framing,
     DateTime? timestamp,
   }) {
     return PredictionResult(
@@ -71,6 +80,7 @@ class PredictionResult {
       result: result ?? this.result,
       confidence: confidence ?? this.confidence,
       errorMessage: errorMessage ?? this.errorMessage,
+      framing: framing ?? this.framing,
       timestamp: timestamp ?? this.timestamp,
     );
   }

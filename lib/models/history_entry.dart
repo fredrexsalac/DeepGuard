@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import 'analysis_framing.dart';
+import 'analysis_outcome.dart';
 import 'provenance_snapshot.dart';
 
 /// A single analysis result saved to a user profile's history.
@@ -17,6 +19,24 @@ class HistoryEntry {
   /// legacy entries saved before this feature.
   final ProvenanceSnapshot? provenance;
 
+  /// What the classifier was actually shown — face box and analysed square.
+  /// Persisted for the same reason as [provenance]: a replayed record has to
+  /// still be able to say whether its verdict came from a tight face crop or
+  /// from a whole wide frame. Null for legacy entries and for video.
+  final AnalysisFraming? framing;
+
+  /// What the USER declared this media actually is — 'authentic' or
+  /// 'manipulated', or null when unannotated. This is the second axis the
+  /// verdict needs and cannot supply itself: without it, a false positive is
+  /// indistinguishable from a true negative inside the app. Self-reported, so
+  /// it is never a model metric and never merged with the benchmark figures.
+  final String? declaredTruth;
+
+  /// Who made that declaration — [DeclaredTruthSource.user] or
+  /// [DeclaredTruthSource.autoProvenance]. No screen prints it; it exists so
+  /// the two kinds can be separated in analysis instead of silently merged.
+  final String? declaredTruthSource;
+
   const HistoryEntry({
     required this.id,
     this.filePath,
@@ -25,11 +45,31 @@ class HistoryEntry {
     required this.confidence,
     required this.timestamp,
     this.provenance,
+    this.framing,
+    this.declaredTruth,
+    this.declaredTruthSource,
   });
+
+  /// The confusion-matrix position of this record, or null while either axis
+  /// is missing. Derived, never stored: one source of truth for the mapping.
+  AnalysisOutcome? get outcome => resolveOutcome(
+        detectionResult: detectionResult,
+        declaredTruth: declaredTruth,
+      );
 
   /// Returns a copy with optional overridden fields (used to attach a provenance
   /// snapshot after the live source trace settles).
-  HistoryEntry copyWith({ProvenanceSnapshot? provenance}) => HistoryEntry(
+  ///
+  /// [declaredTruth] must be carried through here even when untouched: a
+  /// provenance write-back that rebuilt the record without it would silently
+  /// erase an annotation the user already made.
+  HistoryEntry copyWith({
+    ProvenanceSnapshot? provenance,
+    AnalysisFraming? framing,
+    String? declaredTruth,
+    String? declaredTruthSource,
+  }) =>
+      HistoryEntry(
         id: id,
         filePath: filePath,
         mediaType: mediaType,
@@ -37,6 +77,10 @@ class HistoryEntry {
         confidence: confidence,
         timestamp: timestamp,
         provenance: provenance ?? this.provenance,
+        framing: framing ?? this.framing,
+        declaredTruth: declaredTruth ?? this.declaredTruth,
+        declaredTruthSource:
+            declaredTruthSource ?? this.declaredTruthSource,
       );
 
   // ── Derived helpers ────────────────────────────────────────────────────────
@@ -86,7 +130,30 @@ class HistoryEntry {
         'confidence': confidence,
         'timestamp': timestamp.toIso8601String(),
         'provenance': provenance?.toJson(),
+        'framing': framing?.toJson(),
+        'declaredTruth': declaredTruth,
+        'declaredTruthSource': declaredTruthSource,
       };
+
+  /// Same tolerant decode as [provenance]: decoded JSON is not always a
+  /// `Map<String, dynamic>` at rest, and a record must never fail to open
+  /// because one nested map came back loosely typed.
+  static AnalysisFraming? _framingFrom(Object? raw) {
+    if (raw is Map<String, dynamic>) return AnalysisFraming.fromJson(raw);
+    if (raw is Map) return AnalysisFraming.fromJson(Map<String, dynamic>.from(raw));
+    return null;
+  }
+
+  static String? _sourceFrom(Map<String, dynamic> json, String? truth) {
+    if (truth == null) return null;
+    final raw = json['declaredTruthSource'];
+    if (raw is String && raw.isNotEmpty) return raw;
+    // A record saved by an earlier build carries a declaration but no source,
+    // and the only way a declaration could exist then is a human tapping a
+    // chip. Defaulting those to 'auto-provenance' would mislabel a person's
+    // testimony as a machine inference.
+    return DeclaredTruthSource.user;
+  }
 
   factory HistoryEntry.fromJson(Map<String, dynamic> json) => HistoryEntry(
         id: json['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
@@ -103,5 +170,11 @@ class HistoryEntry {
                 ? ProvenanceSnapshot.fromJson(
                     Map<String, dynamic>.from(json['provenance'] as Map))
                 : null),
+        framing: _framingFrom(json['framing']),
+        declaredTruth: _truthFrom(json),
+        declaredTruthSource: _sourceFrom(json, _truthFrom(json)),
       );
+
+  static String? _truthFrom(Map<String, dynamic> json) =>
+      DeclaredTruth.parse(json['declaredTruth'])?.storageValue;
 }

@@ -20,6 +20,13 @@ dependencies:
   shared_preferences: ^2.3.2
   tflite_flutter: ^0.12.1
   image: ^4.2.0
+  # On-device face detection, used only to frame the image branch of the
+  # classifier (see lib/services/face_crop_service.dart). ML Kit's model ships
+  # inside the APK, so this adds no network dependency and no new permission:
+  # it reads the already-picked file, never the camera hardware.
+  # 0.14.x is the last line compatible with Dart 3.9 (0.15+ needs Dart 3.12),
+  # so this is pinned deliberately — upgrading it means upgrading Flutter.
+  google_mlkit_face_detection: ^0.14.0
   connectivity_plus: ^6.0.5
   video_thumbnail: ^0.5.6
   url_launcher: ^6.3.2

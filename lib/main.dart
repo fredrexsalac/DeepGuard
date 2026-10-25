@@ -126,6 +126,7 @@ class _MainShellState extends State<MainShell> {
             : 'manipulated',
         confidence: result.confidence,
         timestamp: result.timestamp,
+        framing: result.framing,
       );
       service.saveHistoryEntry(profile.id, entry);
       service.incrementStats(profile.id, isFake: isFake);

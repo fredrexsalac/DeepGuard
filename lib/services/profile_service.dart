@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_profile.dart';
+import '../models/analysis_outcome.dart';
 import '../models/history_entry.dart';
 import '../models/provenance_snapshot.dart';
 
@@ -224,6 +225,66 @@ class ProfileService extends ChangeNotifier {
     final encoded = jsonEncode(entries.map((e) => e.toJson()).toList());
     await _prefs!.setString(_historyKey(profileId), encoded);
     notifyListeners();
+  }
+
+  /// Records (or clears) the user's own declaration of what a saved record's
+  /// media actually is, so a verdict can be scored as TP / TN / FP / FN.
+  ///
+  /// [declaredTruth] is 'authentic', 'manipulated', or null to remove an
+  /// annotation the user took back. The replacement entry is rebuilt field by
+  /// field rather than through copyWith precisely because copyWith cannot
+  /// express "set to null". Nothing here touches [HistoryEntry.detectionResult]:
+  /// disagreeing with the model never rewrites the model's answer.
+  Future<void> updateHistoryDeclaration(
+    String profileId,
+    String entryId,
+    String? declaredTruth, {
+    String source = DeclaredTruthSource.user,
+  }) async {
+    final entries = await getHistory(profileId);
+    final idx = entries.indexWhere((e) => e.id == entryId);
+    if (idx == -1) return;
+    final e = entries[idx];
+    entries[idx] = HistoryEntry(
+      id: e.id,
+      filePath: e.filePath,
+      mediaType: e.mediaType,
+      detectionResult: e.detectionResult,
+      confidence: e.confidence,
+      timestamp: e.timestamp,
+      provenance: e.provenance,
+      framing: e.framing,
+      declaredTruth: declaredTruth,
+      declaredTruthSource: declaredTruth == null ? null : source,
+    );
+    final encoded = jsonEncode(entries.map((e) => e.toJson()).toList());
+    await _prefs!.setString(_historyKey(profileId), encoded);
+    notifyListeners();
+  }
+
+  /// Applies the provenance-derived declaration rule to one record, once.
+  ///
+  /// Called when a live analysis's provenance settles. It writes nothing when
+  /// the rule does not fire, and it never touches a record that already carries
+  /// a declaration: a human who has answered the question outranks the
+  /// inference, in both directions, permanently.
+  ///
+  /// The stored source is [DeclaredTruthSource.autoProvenance] so these records
+  /// can be filtered out of any tally that claims to rest on ground truth.
+  Future<void> applyAutoDeclaration(
+    String profileId,
+    String entryId,
+    ProvenanceSnapshot snapshot,
+  ) async {
+    final entries = await getHistory(profileId);
+    final idx = entries.indexWhere((e) => e.id == entryId);
+    if (idx == -1) return;
+    final e = entries[idx];
+    if (e.declaredTruth != null) return;
+    final truth = autoTruthFromProvenance(snapshot, e.detectionResult);
+    if (truth == null) return;
+    await updateHistoryDeclaration(profileId, entryId, truth,
+        source: DeclaredTruthSource.autoProvenance);
   }
 
   // ── Stats reset ────────────────────────────────────────────────────────────

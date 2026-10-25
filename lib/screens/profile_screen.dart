@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/user_profile.dart';
+import '../models/analysis_outcome.dart';
 import '../models/history_entry.dart';
 import '../models/prediction_result.dart';
 import '../services/profile_service.dart';
@@ -127,6 +128,10 @@ class _ProfileScreenState extends State<ProfileScreen>
               : null,
       confidence: entry.confidence,
       timestamp: entry.timestamp,
+      // Replay has to carry the framing too: whether this verdict came from a
+      // tight face crop or a whole wide frame is part of what the record means,
+      // and null for legacy entries simply draws nothing.
+      framing: entry.framing,
     );
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => ResultScreen(
@@ -134,6 +139,9 @@ class _ProfileScreenState extends State<ProfileScreen>
         filePath: entry.filePath ?? '',
         isHistory: true,
         historyProvenance: entry.provenance,
+        // The user's own earlier declaration travels with the record, so the
+        // chips come back marked instead of asking an already-answered question.
+        historyDeclaredTruth: entry.declaredTruth,
         onAnalyzeAnother: () => Navigator.of(context).pop(),
         onGoHome: () => Navigator.of(context).pop(),
       ),
@@ -163,6 +171,10 @@ class _ProfileScreenState extends State<ProfileScreen>
                     : null,
             confidence: result.confidence,
             timestamp: DateTime.now(),
+            // Re-analysis has its own fresh framing — the face may be found now
+            // where it was not before, and the record must show what this run
+            // actually looked at rather than the old run's geometry.
+            framing: result.framing,
           );
           final profile = _svc.activeProfile;
           if (profile != null) {
@@ -636,14 +648,26 @@ class _ProfileScreenState extends State<ProfileScreen>
             fontSize: 12)),
   ]);
 
-  Widget _buildHistoryList() => ListView.separated(
-    physics: const AlwaysScrollableScrollPhysics(),
-    padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
-    itemCount: _history.length,
-    separatorBuilder: (_, __) => const SizedBox(height: 8),
-    itemBuilder: (_, i) {
-      final entry = _history[i];
-      return Dismissible(
+  /// History list, led by the self-reported outcome tally so annotations read
+  /// at a glance. The tally counts only records the user annotated and labels
+  /// itself as self-report — it is not, and must never be presented as, the
+  /// model's benchmark accuracy.
+  Widget _buildHistoryList() {
+    final showTally = _history.isNotEmpty;
+    final tally = OutcomeTally.from(_history.map((e) => e.outcome));
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
+      itemCount: _history.length + (showTally ? 1 : 0),
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, i) => showTally && i == 0
+          ? _OutcomeTallyCard(tally: tally)
+          : _historyTile(_history[showTally ? i - 1 : i]),
+    );
+  }
+
+  Widget _historyTile(HistoryEntry entry) {
+    return Dismissible(
         key: Key(entry.id),
         direction: DismissDirection.endToStart,
         background: Container(
@@ -678,9 +702,8 @@ class _ProfileScreenState extends State<ProfileScreen>
         },
         child: _HistoryTile(
             entry: entry, onTap: () => _onHistoryTap(entry)),
-      );
-    },
-  );
+    );
+  }
 
   Future<bool> _confirmDeleteEntry(HistoryEntry entry) async {
     final result = await showDialog<bool>(
@@ -717,6 +740,109 @@ class _ProfileScreenState extends State<ProfileScreen>
 // ─────────────────────────────────────────────────────────────────────────────
 // History widgets
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// The confusion-matrix tally built from the user's own declarations.
+///
+/// Carries its denominator and its limitation in the same box: these are
+/// self-reported annotations from this device, not the held-out test set, and
+/// the two numbers must never be quoted as one another.
+class _OutcomeTallyCard extends StatelessWidget {
+  final OutcomeTally tally;
+  const _OutcomeTallyCard({required this.tally});
+
+  static const _cells = [
+    ('TP', 'True Positive'),
+    ('TN', 'True Negative'),
+    ('FP', 'False Positive'),
+    ('FN', 'False Negative'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final values = [
+      tally.truePositive,
+      tally.trueNegative,
+      tally.falsePositive,
+      tally.falseNegative,
+    ];
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: DeepGuardColors.textMuted.withAlpha(50)),
+        color: DeepGuardColors.surfaceCard.withAlpha(60),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: const [
+            Text('DECLARED OUTCOMES',
+                style: TextStyle(color: DeepGuardColors.textSecondary,
+                    fontSize: 10, letterSpacing: 2,
+                    fontWeight: FontWeight.w700, fontFamily: 'monospace')),
+            Spacer(),
+          ]),
+          const SizedBox(height: 4),
+          Text(
+            tally.isEmpty
+                ? 'No verdicts annotated yet. Open a record and use '
+                    '"Your assessment" to add one.'
+                : '${tally.annotated} of your records carry a declaration.',
+            style: TextStyle(
+                color: DeepGuardColors.textMuted.withAlpha(200),
+                fontSize: 10, height: 1.4),
+          ),
+          const SizedBox(height: 10),
+          Row(children: [
+            for (var i = 0; i < _cells.length; i++) ...[
+              if (i > 0) const SizedBox(width: 6),
+              Expanded(
+                child: Tooltip(
+                  message: _cells[i].$2,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(6),
+                      color: DeepGuardColors.surfaceDark.withAlpha(120),
+                      border: Border.all(
+                          color: DeepGuardColors.textMuted.withAlpha(40)),
+                    ),
+                    child: Column(children: [
+                      Text('${values[i]}',
+                          style: TextStyle(
+                              color: values[i] > 0
+                                  ? DeepGuardColors.textPrimary
+                                  : DeepGuardColors.textMuted.withAlpha(120),
+                              fontSize: 15, fontWeight: FontWeight.w800,
+                              fontFamily: 'monospace')),
+                      const SizedBox(height: 2),
+                      Text(_cells[i].$1,
+                          style: TextStyle(
+                              color: DeepGuardColors.textMuted,
+                              fontSize: 9, letterSpacing: 1,
+                              fontFamily: 'monospace')),
+                    ]),
+                  ),
+                ),
+              ),
+            ],
+          ]),
+          const SizedBox(height: 8),
+          Text(
+            'FP = False-Manipulated · FN = False-Authentic. Declarations '
+            'recorded on this device — not the model\'s benchmark '
+            'accuracy (Image 84.82% / Video 71.67%), which comes from the '
+            'held-out test set.',
+            style: TextStyle(
+                color: DeepGuardColors.textMuted.withAlpha(170),
+                fontSize: 9, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _HistoryTile extends StatelessWidget {
   final HistoryEntry entry;
   final VoidCallback onTap;
@@ -760,6 +886,15 @@ class _HistoryTile extends StatelessWidget {
               Text('File unavailable',
                   style: TextStyle(color: DeepGuardColors.warning.withAlpha(180),
                       fontSize: 9)),
+            // The self-reported position, if the user recorded one. Neutral
+            // grey on purpose: this is a note about the verdict, not a verdict.
+            if (entry.outcome != null)
+              Text(
+                '${entry.outcome!.shortCode} · ${entry.outcome!.uiTag}',
+                style: TextStyle(
+                    color: DeepGuardColors.textSecondary.withAlpha(200),
+                    fontSize: 9, fontFamily: 'monospace'),
+              ),
           ],
         )),
         const SizedBox(width: 8),
