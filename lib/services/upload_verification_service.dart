@@ -28,6 +28,17 @@ class ValidationCheck {
     }
   }
 
+  /// The status colour with enough luminance to be read as words. Identical to
+  /// [color] except for FAIL, whose saturated `fake` measures 4.04:1 on a card
+  /// — fine for the icon and border, under the floor for the 11px label.
+  Color get textColor {
+    switch (status) {
+      case ValidationStatus.pass: return DeepGuardColors.authentic;
+      case ValidationStatus.warn: return DeepGuardColors.warning;
+      case ValidationStatus.fail: return DeepGuardColors.fakeText;
+    }
+  }
+
   IconData get icon {
     switch (status) {
       case ValidationStatus.pass: return Icons.check_circle_outline;

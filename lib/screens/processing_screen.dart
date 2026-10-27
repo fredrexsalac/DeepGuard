@@ -431,7 +431,7 @@ class _MediaScanPreviewState extends State<MediaScanPreview>
                           '$filled/$_frameSlots',
                           style: const TextStyle(
                             color: DeepGuardColors.primary,
-                            fontSize: 10,
+                            fontSize: 11,
                             fontFamily: 'monospace',
                           ),
                         ),
@@ -471,7 +471,7 @@ class _MediaScanPreviewState extends State<MediaScanPreview>
                       widget.isVideo ? 'EXTRACTING FRAMES' : 'SCANNING IMAGE',
                       style: const TextStyle(
                         color: DeepGuardColors.primary,
-                        fontSize: 10,
+                        fontSize: 11,
                         letterSpacing: 2,
                         fontFamily: 'monospace',
                       ),
@@ -498,8 +498,8 @@ class _MediaScanPreviewState extends State<MediaScanPreview>
                 size: 40),
             const SizedBox(height: 8),
             Text(label,
-                style: TextStyle(
-                    color: DeepGuardColors.textMuted.withValues(alpha: 0.7),
+                style: const TextStyle(
+                    color: DeepGuardColors.textMuted,
                     fontSize: 11)),
           ],
         ),

@@ -151,8 +151,12 @@ class _FramingPainter extends CustomPainter {
     final tp = TextPainter(
       text: TextSpan(
         text: text,
+        // 11px, not 9px: this is real text on a real background, so it carries
+        // the same floor as everything else in the app, and 9px was below what
+        // anyone can read on a phone. Both labels sit on the opaque
+        // 0xCC0B0E14 plate — sky measures ~7:1 and white ~13:1 against it.
         style: TextStyle(
-            color: color, fontSize: 9, fontFamily: 'monospace', height: 1.0),
+            color: color, fontSize: 11, fontFamily: 'monospace', height: 1.0),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
@@ -223,14 +227,14 @@ class FramingEvidenceLegend extends StatelessWidget {
         const SizedBox(height: 6),
         Text(whatHappened,
             style: TextStyle(
-                color: mutedColor, fontSize: 10.5, height: 1.45,
+                color: mutedColor, fontSize: 11, height: 1.45,
                 fontFamily: 'monospace')),
         const SizedBox(height: 4),
         Text(
           'These marks show what was looked at. They do not locate '
           'manipulation — the classifier returns one verdict for the whole '
           'square, so no region here should be read as the affected area.',
-          style: TextStyle(color: mutedColor, fontSize: 10, height: 1.4),
+          style: TextStyle(color: mutedColor, fontSize: 11, height: 1.4),
         ),
       ],
     );
@@ -247,6 +251,6 @@ class FramingEvidenceLegend extends StatelessWidget {
         const SizedBox(width: 5),
         Text(label,
             style: TextStyle(
-                color: mutedColor, fontSize: 10, fontFamily: 'monospace')),
+                color: mutedColor, fontSize: 11, fontFamily: 'monospace')),
       ]);
 }

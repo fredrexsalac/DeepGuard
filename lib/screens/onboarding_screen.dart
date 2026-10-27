@@ -214,7 +214,7 @@ class _SplashScreenState extends State<SplashScreen>
                     'DEEPFAKE · DETECTION · AI',
                     style: TextStyle(
                       color: DeepGuardColors.primary,
-                      fontSize: 10,
+                      fontSize: 11,
                       letterSpacing: 5,
                       fontWeight: FontWeight.w500,
                     ),
@@ -418,8 +418,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                         horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(20),
+                      // This pill is a control and the border is its only
+                      // outline, so it carries the 3:1 non-text floor.
                       border: Border.all(
-                          color: DeepGuardColors.textMuted.withAlpha(60)),
+                          color: DeepGuardColors.glassBorder),
                       color: Colors.black.withAlpha(40),
                     ),
                     child: const Text('skip',
@@ -589,7 +591,10 @@ class _PageSlideState extends State<_PageSlide>
                 child: Text(
                   _typedTag,
                   style: TextStyle(
-                    color: p.accent,
+                    // textSafeFor: on the purple and magenta steps p.accent is
+                    // 2.22:1 / 3.75:1, unreadable as an 11px terminal tag. The
+                    // hero visual above keeps the vivid accent; the tag lifts.
+                    color: DeepGuardColors.textSafeFor(p.accent),
                     fontSize: 11,
                     fontFamily: 'monospace',
                     letterSpacing: 0.5,
@@ -624,8 +629,11 @@ class _PageSlideState extends State<_PageSlide>
                 opacity: (t * 1.5 - 0.5).clamp(0.0, 1.0),
                 child: Text(
                   p.body,
+                  // Solid textSecondary: withAlpha(200) put the onboarding
+                  // paragraph under the AA floor even at rest, and the
+                  // animation was dimming it further still on top of that.
                   style: TextStyle(
-                    color: DeepGuardColors.textSecondary.withAlpha(200),
+                    color: DeepGuardColors.textSecondary,
                     fontSize: 13.5,
                     height: 1.7,
                     letterSpacing: 0.1,
@@ -881,7 +889,10 @@ void _drawLabel(Canvas c, Offset pos, String text, Color a) {
     text: TextSpan(
       text: text,
       style: TextStyle(
-          color: a, fontSize: 9,
+          // 11px, not 9px. These are the PHOTO/VIDEO/FAKE/REAL tags that name
+          // what the animation is pointing at, so they carry the same minimum
+          // size as any other label in the app.
+          color: a, fontSize: 11,
           fontFamily: 'monospace', letterSpacing: 0.5),
     ),
     textDirection: TextDirection.ltr,
@@ -1062,8 +1073,12 @@ class _NextBtn extends StatelessWidget {
         ),
         child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           Text('NEXT',
+              // textSafeFor: a step's accent can be the deep brand purple
+              // (#7B2FF7, 2.22:1) or magenta (#FF2D95, 3.75:1 on a card), and
+              // neither can be read as 13px text. The border and fill keep the
+              // vivid accent; only the label is lifted.
               style: TextStyle(
-                  color: accent, fontSize: 13,
+                  color: DeepGuardColors.textSafeFor(accent), fontSize: 13,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 3,
                   fontFamily: 'monospace')),
@@ -1120,19 +1135,26 @@ class _GetStartedBtnState extends State<_GetStartedBtn>
                 ),
               ],
             ),
-            child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.shield, color: Colors.white, size: 18),
-                  SizedBox(width: 10),
-                  Text('ACTIVATE DEEPGUARD',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 2.5,
-                          fontFamily: 'monospace')),
-                ]),
+            child: Builder(builder: (_) {
+              // White on a bright-cyan end of this gradient is ~1.9:1. Pick the
+              // ink against the worst of the two stops so the final CTA is
+              // legible whatever the current step's accent happens to be.
+              final Color ink = DeepGuardContrast.inkOnAll(
+                  [widget.accent, DeepGuardColors.secondary]);
+              return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.shield, color: ink, size: 18),
+                    const SizedBox(width: 10),
+                    Text('ACTIVATE DEEPGUARD',
+                        style: TextStyle(
+                            color: ink,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 2.5,
+                            fontFamily: 'monospace')),
+                  ]);
+            }),
           ),
         );
       },

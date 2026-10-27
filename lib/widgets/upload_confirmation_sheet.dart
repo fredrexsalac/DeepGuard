@@ -176,7 +176,7 @@ class _UploadConfirmationSheetState extends State<UploadConfirmationSheet>
                       style: TextStyle(
                         color: r.canProceed
                             ? DeepGuardColors.textPrimary
-                            : DeepGuardColors.fake,
+                            : DeepGuardColors.fakeText,
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
                       ),
@@ -248,7 +248,7 @@ class _UploadConfirmationSheetState extends State<UploadConfirmationSheet>
           const Text('VALIDATION CHECKS',
               style: TextStyle(
                   color: DeepGuardColors.textMuted,
-                  fontSize: 9,
+                  fontSize: 11,
                   letterSpacing: 3,
                   fontWeight: FontWeight.w700,
                   fontFamily: 'monospace')),
@@ -374,8 +374,10 @@ class _UploadConfirmationSheetState extends State<UploadConfirmationSheet>
                     height: 50,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(8),
+                      // A secondary button whose outline is the only thing
+                      // marking it as tappable, so the border has to clear 3:1.
                       border: Border.all(
-                          color: DeepGuardColors.textMuted.withAlpha(60)),
+                          color: DeepGuardColors.glassBorder),
                     ),
                     child: const Center(
                       child: Text('CANCEL',
@@ -415,28 +417,33 @@ class _UploadConfirmationSheetState extends State<UploadConfirmationSheet>
                             ]
                           : null,
                     ),
-                    child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.psychology_outlined,
-                              color: canAnalyze
-                                  ? Colors.white
-                                  : DeepGuardColors.textMuted,
-                              size: 18),
-                          const SizedBox(width: 8),
-                          Text(
-                            'ANALYZE',
-                            style: TextStyle(
-                              color: canAnalyze
-                                  ? Colors.white
-                                  : DeepGuardColors.textMuted,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 2,
-                              fontFamily: 'monospace',
+                    child: Builder(builder: (_) {
+                      // Enabled = white on the cyan→violet gradient (1.88:1 at
+                      // the cyan end). Disabled = muted on a flat fill. Pick the
+                      // ink against the gradient's worst stop when enabled.
+                      final Color ink = canAnalyze
+                          ? DeepGuardContrast.inkOnAll(
+                              DeepGuardColors.primaryGradient)
+                          : DeepGuardColors.textMuted;
+                      return Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.psychology_outlined,
+                                color: ink,
+                                size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              'ANALYZE',
+                              style: TextStyle(
+                                color: ink,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 2,
+                                fontFamily: 'monospace',
+                              ),
                             ),
-                          ),
-                        ]),
+                          ]);
+                    }),
                   ),
                 ),
               ),
@@ -471,7 +478,7 @@ class _UploadConfirmationSheetState extends State<UploadConfirmationSheet>
                 child: const Center(
                   child: Text('DISMISS',
                       style: TextStyle(
-                          color: DeepGuardColors.fake,
+                          color: DeepGuardColors.fakeText,
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
                           letterSpacing: 2,
@@ -573,7 +580,7 @@ class _UploadConfirmationSheetState extends State<UploadConfirmationSheet>
         child: Text(text,
             style: TextStyle(
                 color: color,
-                fontSize: 9,
+                fontSize: 11,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 0.8,
                 fontFamily: 'monospace')),
@@ -607,7 +614,7 @@ class _CheckRow extends StatelessWidget {
                 children: [
                   Text(check.label,
                       style: TextStyle(
-                          color: check.color,
+                          color: check.textColor,
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
                           letterSpacing: 0.5,

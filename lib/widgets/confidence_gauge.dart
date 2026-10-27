@@ -38,12 +38,6 @@ class ConfidenceGauge extends StatelessWidget {
                   fontSize: size * 0.22,
                   fontWeight: FontWeight.bold,
                   color: gaugeColor,
-                  shadows: [
-                    Shadow(
-                      color: gaugeColor.withValues(alpha: 0.5),
-                      blurRadius: 20,
-                    ),
-                  ],
                 ),
               ),
               const SizedBox(height: 4),

@@ -243,8 +243,8 @@ class _UploadScreenState extends State<UploadScreen>
       const Spacer(),
       Text('ANALYSE',
           style: TextStyle(
-            color: DeepGuardColors.textMuted.withAlpha(120),
-            fontSize: 10, letterSpacing: 3, fontFamily: 'monospace',
+            color: DeepGuardColors.textMuted,
+            fontSize: 11, letterSpacing: 3, fontFamily: 'monospace',
           )),
     ]),
   );
@@ -263,7 +263,7 @@ class _UploadScreenState extends State<UploadScreen>
       const SizedBox(height: 6),
       Text('Capture with the camera or import from the gallery — DeepGuard analyses every frame after capture.',
           style: TextStyle(
-            color: DeepGuardColors.textSecondary.withAlpha(180),
+            color: DeepGuardColors.textSecondary,
             fontSize: 13, height: 1.5,
           )),
       const SizedBox(height: 24),
@@ -276,7 +276,7 @@ class _UploadScreenState extends State<UploadScreen>
       const Text('QUICK SELECT',
           style: TextStyle(
             color: DeepGuardColors.textMuted,
-            fontSize: 10, letterSpacing: 3,
+            fontSize: 11, letterSpacing: 3,
             fontWeight: FontWeight.w700, fontFamily: 'monospace',
           )),
       const SizedBox(height: 14),
@@ -334,11 +334,13 @@ class _UploadScreenState extends State<UploadScreen>
   );
 
   Widget _fmtRow(IconData icon, String text, Color color) => Row(children: [
-    Icon(icon, size: 14, color: color.withAlpha(160)),
+    Icon(icon, size: 14, color: color),
     const SizedBox(width: 10),
+    // Solid colour: withAlpha(180) on top of textMuted put the supported
+    // format list, the thing a user checks before picking a file, near 2:1.
     Text(text,
         style: TextStyle(
-          color: color.withAlpha(180), fontSize: 11,
+          color: color, fontSize: 11,
           fontFamily: 'monospace', letterSpacing: 0.8,
         )),
   ]);
@@ -353,8 +355,10 @@ class _UploadScreenState extends State<UploadScreen>
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const SizedBox(height: 8),
       Text('> FILE LOADED — $_mediaType'.toUpperCase(),
-          style: TextStyle(
-            color: DeepGuardColors.authentic.withAlpha(180),
+          style: const TextStyle(
+            // Solid authentic: authentic clears 7.78:1, so the alpha(180)
+            // dim only ever pushed an already-safe green toward the floor.
+            color: DeepGuardColors.authentic,
             fontSize: 11, fontFamily: 'monospace', letterSpacing: 1,
           )),
       const SizedBox(height: 16),
@@ -435,8 +439,8 @@ class _UploadScreenState extends State<UploadScreen>
                   overflow: TextOverflow.ellipsis),
               Text('$sizeMb MB  ·  ${isImg ? 'IMAGE' : 'VIDEO'}',
                   style: TextStyle(
-                      color: DeepGuardColors.textMuted.withAlpha(180),
-                      fontSize: 10, fontFamily: 'monospace')),
+                      color: DeepGuardColors.textMuted,
+                      fontSize: 11, fontFamily: 'monospace')),
             ],
           )),
           // Checkmark
@@ -461,8 +465,10 @@ class _UploadScreenState extends State<UploadScreen>
               height: 48,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(6),
+                // A tappable control whose only boundary is this line, so it
+                // carries the 3:1 non-text floor rather than a decorative hairline.
                 border: Border.all(
-                    color: DeepGuardColors.textMuted.withAlpha(50)),
+                    color: DeepGuardColors.glassBorder),
               ),
               child: const Center(
                 child: Text('CLEAR',
@@ -491,20 +497,27 @@ class _UploadScreenState extends State<UploadScreen>
                   blurRadius: 16, spreadRadius: 1,
                 )],
               ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.psychology_outlined,
-                      color: Colors.white, size: 18),
-                  SizedBox(width: 8),
-                  Text('RUN ANALYSIS',
-                      style: TextStyle(
-                        color: Colors.white, fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 2, fontFamily: 'monospace',
-                      )),
-                ],
-              ),
+              child: Builder(builder: (_) {
+                // White on the cyan→violet primaryGradient is 1.88:1 at the
+                // cyan end, on the button that submits the whole analysis. The
+                // ink is chosen against the gradient's worst stop.
+                final Color ink = DeepGuardContrast.inkOnAll(
+                    DeepGuardColors.primaryGradient);
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.psychology_outlined,
+                        color: ink, size: 18),
+                    const SizedBox(width: 8),
+                    Text('RUN ANALYSIS',
+                        style: TextStyle(
+                          color: ink, fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 2, fontFamily: 'monospace',
+                        )),
+                  ],
+                );
+              }),
             ),
           ),
         ),
@@ -559,8 +572,8 @@ class _DropZone extends StatelessWidget {
           Text('JPG · PNG · MP4 · MOV · AVI',
               textAlign: TextAlign.center,
               style: TextStyle(
-                color: DeepGuardColors.textMuted.withAlpha(120),
-                fontSize: 10, letterSpacing: 1,
+                color: DeepGuardColors.textMuted,
+                fontSize: 11, letterSpacing: 1,
               )),
         ]),
       ]),
@@ -582,30 +595,37 @@ class _SourceTile extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: accent.withAlpha(60)),
-        color: accent.withAlpha(12),
+  Widget build(BuildContext context) {
+    // The tile's identity colour is fine for the fill and border, but the
+    // 8px code label was both unreadably small and, for the magenta CAMERA
+    // accent, under the floor. Paint the mark and its label with the text-safe
+    // twin; the container keeps the vivid original.
+    final Color ink = DeepGuardColors.textSafeFor(accent);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: accent.withAlpha(60)),
+          color: accent.withAlpha(12),
+        ),
+        child: Column(children: [
+          Text(code,
+              style: TextStyle(
+                  color: ink, fontSize: 10, fontWeight: FontWeight.w800,
+                  letterSpacing: 2, fontFamily: 'monospace')),
+          const SizedBox(height: 8),
+          Icon(icon, color: ink, size: 26),
+          const SizedBox(height: 8),
+          Text(label,
+              style: const TextStyle(
+                  color: DeepGuardColors.textPrimary,
+                  fontSize: 11, fontWeight: FontWeight.w600)),
+        ]),
       ),
-      child: Column(children: [
-        Text(code,
-            style: TextStyle(
-                color: accent, fontSize: 8, fontWeight: FontWeight.w800,
-                letterSpacing: 2, fontFamily: 'monospace')),
-        const SizedBox(height: 8),
-        Icon(icon, color: accent, size: 26),
-        const SizedBox(height: 8),
-        Text(label,
-            style: const TextStyle(
-                color: DeepGuardColors.textPrimary,
-                fontSize: 11, fontWeight: FontWeight.w600)),
-      ]),
-    ),
-  );
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -762,7 +782,10 @@ class _VideoPreviewState extends State<_VideoPreview> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
               decoration: BoxDecoration(
-                color: Colors.black.withAlpha(160),
+                // Darker scrim: a bright video frame showing through at alpha
+                // 160 lightens the chip toward the white text and eats the
+                // contrast. The badge has to survive any frame behind it.
+                color: Colors.black.withAlpha(200),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: ValueListenableBuilder<VideoPlayerValue>(
@@ -775,7 +798,7 @@ class _VideoPreviewState extends State<_VideoPreview> {
                       '${(d.inSeconds % 60).toString().padLeft(2, '0')}';
                   return Text('${fmt(pos)} / ${fmt(dur)}',
                       style: const TextStyle(
-                        color: Colors.white, fontSize: 9,
+                        color: Colors.white, fontSize: 11,
                         fontFamily: 'monospace',
                       ));
                 },

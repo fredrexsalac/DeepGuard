@@ -52,6 +52,19 @@ class PredictionResult {
         : DeepGuardColors.fake;
   }
 
+  /// The verdict colour with enough luminance to be read as words. `fake`
+  /// measures 4.94:1 on the page background but only 4.04:1 on a card and
+  /// 3.37:1 on the lightest one, so any text painted with the classification
+  /// red needs the lighter variant. `authentic` clears 7.78:1 worst case and
+  /// is returned as-is rather than brightened out of its own identity. Use
+  /// [resultColor] for fills, icons, borders and glows; use this for glyphs.
+  Color get resultTextColor {
+    if (result == null) return DeepGuardColors.textMuted;
+    return result == DetectionResult.authentic
+        ? DeepGuardColors.authentic
+        : DeepGuardColors.fakeText;
+  }
+
   IconData get resultIcon {
     if (status == PredictionStatus.processing) return Icons.hourglass_top;
     if (status == PredictionStatus.error) return Icons.error_outline;

@@ -540,7 +540,9 @@ class MediaProvenanceService {
       if (detectedApp == null) {
         detectedApp = 'No Recognizable Metadata';
         category = 'Web / Social Media';
-        evidence.add('No camera or application metadata was found. This is common for screenshots, social-media/messaging downloads, and re-encoded images. Absent metadata alone does NOT indicate AI generation or manipulation.');
+        // Intentionally no evidence bullet here. The "No Recognizable Metadata"
+        // heading already states it, and the long explanation was removed as UI
+        // clutter. Absent metadata remains neutral — never evidence of AI.
       }
 
       dev.log(

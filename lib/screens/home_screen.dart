@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import 'about_screen.dart' show kDeepGuardVersion;
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback onAnalyzeTap;
@@ -172,6 +173,11 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildHeader() {
     final Color statusColor =
         _isOnline ? DeepGuardColors.authentic : DeepGuardColors.fake;
+    // The word beside the dot. `fake` is the classification red and measures
+    // 4.04:1 on a card and 3.37:1 on the lightest one, which is fine for a
+    // status dot and not fine for the 11px label that explains it.
+    final Color statusInk =
+        _isOnline ? DeepGuardColors.authentic : DeepGuardColors.fakeText;
     return Row(children: [
       AnimatedBuilder(
         animation: _pulseCtrl,
@@ -206,10 +212,13 @@ class _HomeScreenState extends State<HomeScreen>
               letterSpacing: 4,
               fontFamily: 'monospace',
             )),
-        Text('v1.0 · CNN–RNN HYBRID',
-            style: TextStyle(
-              color: DeepGuardColors.primary.withAlpha(180),
-              fontSize: 9,
+        // Read from the same constant the About screen prints. This line said
+        // v1.0 for three releases, which is how a screen ends up describing a
+        // build that is not itself.
+        Text('v$kDeepGuardVersion · CNN–RNN HYBRID',
+            style: const TextStyle(
+              color: DeepGuardColors.primary,
+              fontSize: 11,
               letterSpacing: 2.5,
               fontFamily: 'monospace',
             )),
@@ -233,7 +242,11 @@ class _HomeScreenState extends State<HomeScreen>
                   online
                       ? 'Network Status: ONLINE (Wi-Fi/Internet Connected)'
                       : 'Network Status: OFFLINE (No Internet Connection)',
-                  style: const TextStyle(fontSize: 12),
+                  // The SnackBar paints over its own dark red, not over a page
+                  // surface, so the bodyMedium default (textMuted, 4.2:1 on
+                  // 0xFF2A0D15) has to be overridden with real ink.
+                  style: const TextStyle(
+                      fontSize: 12, color: DeepGuardColors.textPrimary),
                 ),
                 duration: const Duration(seconds: 2),
                 backgroundColor: online
@@ -272,8 +285,8 @@ class _HomeScreenState extends State<HomeScreen>
               Text(
                 _isOnline ? 'ONLINE' : 'OFFLINE',
                 style: TextStyle(
-                  color: statusColor,
-                  fontSize: 9,
+                  color: statusInk,
+                  fontSize: 11,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1.5,
                   fontFamily: 'monospace',
@@ -304,8 +317,11 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('> deepguard --detect',
-            style: TextStyle(
-              color: DeepGuardColors.primary.withAlpha(160),
+            style: const TextStyle(
+              // Solid primary. withAlpha(160) is 3.78:1 at 11px — the prompt
+              // line that sets the whole terminal aesthetic was the least
+              // readable text on the page.
+              color: DeepGuardColors.primary,
               fontSize: 11,
               fontFamily: 'monospace',
               letterSpacing: 0.5,
@@ -325,8 +341,8 @@ class _HomeScreenState extends State<HomeScreen>
         Text(
           'Hybrid CNN–RNN model processes every frame. '
           'Spatial artefacts and temporal drift — nothing hides.',
-          style: TextStyle(
-            color: DeepGuardColors.textSecondary.withAlpha(200),
+          style: const TextStyle(
+            color: DeepGuardColors.textSecondary,
             fontSize: 13,
             height: 1.6,
           ),
@@ -371,7 +387,7 @@ class _HomeScreenState extends State<HomeScreen>
         child: Column(children: [
           Text(code,
               style: TextStyle(
-                  color: accent, fontSize: 9,
+                  color: accent, fontSize: 11,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 2,
                   fontFamily: 'monospace')),
@@ -397,7 +413,7 @@ class _HomeScreenState extends State<HomeScreen>
       ('PREPROCESS', DeepGuardColors.primary),
       ('CNN', DeepGuardColors.secondary),
       ('RNN', DeepGuardColors.secondary),
-      ('FUSION', DeepGuardColors.accent),
+      ('FUSION', DeepGuardColors.accentText),
       ('OUTPUT', DeepGuardColors.authentic),
     ];
     return SizedBox(
@@ -419,7 +435,11 @@ class _HomeScreenState extends State<HomeScreen>
                     child: Text(e.value.$1,
                         style: TextStyle(
                             color: e.value.$2,
-                            fontSize: 8,
+                            // 10px, not 8px. Eight-pixel monospace with 0.8
+                            // letter-spacing is not a design choice, it is an
+                            // unreadable label; the row is wide enough for the
+                            // longest word at this size.
+                            fontSize: 10,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.8,
                             fontFamily: 'monospace')),
@@ -428,7 +448,7 @@ class _HomeScreenState extends State<HomeScreen>
               ),
               if (!isLast)
                 Icon(Icons.chevron_right,
-                    size: 14, color: DeepGuardColors.textMuted.withAlpha(100)),
+                    size: 14, color: DeepGuardColors.textMuted),
             ]),
           );
         }).toList(),
@@ -439,6 +459,11 @@ class _HomeScreenState extends State<HomeScreen>
   // ── Step card ─────────────────────────────────────────────────────────────
   Widget _buildStep(
       String num, String title, String sub, IconData icon, Color accent) {
+    // The step number and the trailing icon are painted at 22px and 14px,
+    // where 14px is ordinary-size text: `accent` (Verdict's magenta) measures
+    // 4.49:1 on the page background there, under the floor. The card's own
+    // fill and border keep the identity colour.
+    final Color ink = DeepGuardColors.textSafeFor(accent);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -449,7 +474,7 @@ class _HomeScreenState extends State<HomeScreen>
       child: Row(children: [
         Text(num,
             style: TextStyle(
-              color: accent.withAlpha(120),
+              color: ink.withAlpha(180),
               fontSize: 22,
               fontWeight: FontWeight.w900,
               fontFamily: 'monospace',
@@ -465,13 +490,13 @@ class _HomeScreenState extends State<HomeScreen>
                     fontWeight: FontWeight.w700)),
             const SizedBox(height: 3),
             Text(sub,
-                style: TextStyle(
-                    color: DeepGuardColors.textSecondary.withAlpha(180),
+                style: const TextStyle(
+                    color: DeepGuardColors.textSecondary,
                     fontSize: 12,
                     height: 1.4)),
           ],
         )),
-        Icon(icon, color: accent.withAlpha(120), size: 22),
+        Icon(icon, color: ink, size: 22),
       ]),
     );
   }
@@ -495,7 +520,7 @@ class _HomeScreenState extends State<HomeScreen>
             const Text('MODEL TEST ACCURACY',
                 style: TextStyle(
                   color: DeepGuardColors.authentic,
-                  fontSize: 9,
+                  fontSize: 11,
                   letterSpacing: 2,
                   fontWeight: FontWeight.w700,
                   fontFamily: 'monospace',
@@ -526,7 +551,7 @@ class _HomeScreenState extends State<HomeScreen>
     text,
     style: const TextStyle(
       color: DeepGuardColors.textMuted,
-      fontSize: 10,
+      fontSize: 11,
       letterSpacing: 3,
       fontWeight: FontWeight.w700,
       fontFamily: 'monospace',
@@ -548,36 +573,44 @@ class _CyberButton extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      height: 52,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(6),
-        gradient: LinearGradient(
-          colors: [accent, DeepGuardColors.secondary],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
+  Widget build(BuildContext context) {
+    // White label on a cyan→violet gradient measured 1.88:1 at the cyan end —
+    // the least accessible string in the app, on the app's primary call to
+    // action. A gradient has two contrast ratios, so ink is chosen against the
+    // worst stop; whichever half the label lands on, it clears the floor.
+    final Color ink =
+        DeepGuardContrast.inkOnAll([accent, DeepGuardColors.secondary]);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 52,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(6),
+          gradient: LinearGradient(
+            colors: [accent, DeepGuardColors.secondary],
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+          ),
+          boxShadow: [BoxShadow(
+            color: accent.withAlpha(80),
+            blurRadius: 20, spreadRadius: 1, offset: const Offset(0, 4),
+          )],
         ),
-        boxShadow: [BoxShadow(
-          color: accent.withAlpha(80),
-          blurRadius: 20, spreadRadius: 1, offset: const Offset(0, 4),
-        )],
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, color: ink, size: 18),
+          const SizedBox(width: 10),
+          Text(label,
+              style: TextStyle(
+                color: ink,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 2,
+                fontFamily: 'monospace',
+              )),
+        ]),
       ),
-      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(icon, color: Colors.white, size: 18),
-        const SizedBox(width: 10),
-        Text(label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 2,
-              fontFamily: 'monospace',
-            )),
-      ]),
-    ),
-  );
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -680,6 +713,10 @@ class _RailPainter extends CustomPainter {
         text: TextSpan(
           text: chars[i % chars.length],
           style: TextStyle(
+            // Pure decoration: a drifting hex rail behind the hero. WCAG
+            // exempts it (SC 1.4.3 has no thing to read), so the alpha ramp
+            // here is an aesthetic fade, not a text style — and it is the only
+            // place in the app allowed to dim a colour this far.
             color: DeepGuardColors.primary.withAlpha(alpha),
             fontSize: 8, fontFamily: 'monospace',
           ),

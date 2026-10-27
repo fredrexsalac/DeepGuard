@@ -139,9 +139,8 @@ class _ProfileScreenState extends State<ProfileScreen>
         filePath: entry.filePath ?? '',
         isHistory: true,
         historyProvenance: entry.provenance,
-        // The user's own earlier declaration travels with the record, so the
-        // chips come back marked instead of asking an already-answered question.
-        historyDeclaredTruth: entry.declaredTruth,
+        // The provenance snapshot travels with the record, which is all the
+        // cross-check needs to re-derive its flag offline.
         onAnalyzeAnother: () => Navigator.of(context).pop(),
         onGoHome: () => Navigator.of(context).pop(),
       ),
@@ -523,7 +522,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Clear All',
-                style: TextStyle(color: DeepGuardColors.fake,
+                style: TextStyle(color: DeepGuardColors.fakeText,
                     fontWeight: FontWeight.w700)),
           ),
         ],
@@ -571,8 +570,12 @@ class _ProfileScreenState extends State<ProfileScreen>
       child: Column(children: [
         Text(value, style: TextStyle(color: accent, fontSize: 16,
             fontWeight: FontWeight.w900)),
-        Text(label, style: TextStyle(color: accent.withAlpha(180),
-            fontSize: 9, fontWeight: FontWeight.w700,
+        // Solid accent, not accent.withAlpha(180): dimming the label had put
+        // it near 2:1. The four accents this is called with — primary, fake,
+        // authentic, warning — all clear 4.5:1 against the page background at
+        // full strength, which is the surface these tiles sit on.
+        Text(label, style: TextStyle(color: accent,
+            fontSize: 11, fontWeight: FontWeight.w700,
             letterSpacing: 1, fontFamily: 'monospace')),
       ]),
     ),
@@ -611,9 +614,9 @@ class _ProfileScreenState extends State<ProfileScreen>
             ? 'Working on the backup file…'
             : 'Export keeps your records in a file you own; restore reads it '
                 'back after a reinstall. Media files are not included.',
-        style: TextStyle(
-            color: DeepGuardColors.textMuted.withAlpha(180),
-            fontSize: 9.5, height: 1.3, fontFamily: 'monospace'),
+        style: const TextStyle(
+            color: DeepGuardColors.textMuted,
+            fontSize: 11, height: 1.3, fontFamily: 'monospace'),
       ),
     ]),
   );
@@ -624,15 +627,15 @@ class _ProfileScreenState extends State<ProfileScreen>
     child: Row(children: [
       const Text('HISTORY',
           style: TextStyle(color: DeepGuardColors.textMuted,
-              fontSize: 10, letterSpacing: 3,
+              fontSize: 11, letterSpacing: 3,
               fontWeight: FontWeight.w700, fontFamily: 'monospace')),
       const Spacer(),
       if (_history.isNotEmpty)
         GestureDetector(
           onTap: _confirmClearAll,
-          child: Text('CLEAR ALL',
-              style: TextStyle(color: DeepGuardColors.fake.withAlpha(160),
-                  fontSize: 9, letterSpacing: 1, fontFamily: 'monospace')),
+          child: const Text('CLEAR ALL',
+              style: TextStyle(color: DeepGuardColors.fakeText,
+                  fontSize: 11, letterSpacing: 1, fontFamily: 'monospace')),
         ),
     ]),
   );
@@ -644,13 +647,12 @@ class _ProfileScreenState extends State<ProfileScreen>
         style: TextStyle(color: DeepGuardColors.textMuted, fontSize: 14)),
     const SizedBox(height: 6),
     Text('Analyse a photo or video to see history here',
-        style: TextStyle(color: DeepGuardColors.textMuted.withAlpha(140),
-            fontSize: 12)),
+        style: TextStyle(color: DeepGuardColors.textMuted, fontSize: 13)),
   ]);
 
-  /// History list, led by the self-reported outcome tally so annotations read
-  /// at a glance. The tally counts only records the user annotated and labels
-  /// itself as self-report — it is not, and must never be presented as, the
+  /// History list, led by the provenance cross-check tally. It counts only the
+  /// records whose own metadata carried usable evidence about what they are,
+  /// and says so on its face — it is not, and must never be presented as, the
   /// model's benchmark accuracy.
   Widget _buildHistoryList() {
     final showTally = _history.isNotEmpty;
@@ -686,7 +688,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               SizedBox(width: 6),
               Text('DELETE',
                   style: TextStyle(
-                      color: DeepGuardColors.fake, fontSize: 10,
+                      color: DeepGuardColors.fakeText, fontSize: 11,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 1, fontFamily: 'monospace')),
             ],
@@ -727,7 +729,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Delete',
-                style: TextStyle(color: DeepGuardColors.fake,
+                style: TextStyle(color: DeepGuardColors.fakeText,
                     fontWeight: FontWeight.w700)),
           ),
         ],
@@ -741,11 +743,11 @@ class _ProfileScreenState extends State<ProfileScreen>
 // History widgets
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The confusion-matrix tally built from the user's own declarations.
+/// The confusion-matrix tally built from each record's own file evidence.
 ///
 /// Carries its denominator and its limitation in the same box: these are
-/// self-reported annotations from this device, not the held-out test set, and
-/// the two numbers must never be quoted as one another.
+/// cross-checks against metadata embedded in the files on this device, not the
+/// held-out test set, and the two numbers must never be quoted as one another.
 class _OutcomeTallyCard extends StatelessWidget {
   final OutcomeTally tally;
   const _OutcomeTallyCard({required this.tally});
@@ -769,28 +771,31 @@ class _OutcomeTallyCard extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: DeepGuardColors.textMuted.withAlpha(50)),
+        border: Border.all(color: DeepGuardColors.glassBorder),
         color: DeepGuardColors.surfaceCard.withAlpha(60),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: const [
-            Text('DECLARED OUTCOMES',
+            Text('PROVENANCE CROSS-CHECK',
                 style: TextStyle(color: DeepGuardColors.textSecondary,
-                    fontSize: 10, letterSpacing: 2,
+                    fontSize: 11, letterSpacing: 2,
                     fontWeight: FontWeight.w700, fontFamily: 'monospace')),
             Spacer(),
           ]),
           const SizedBox(height: 4),
           Text(
             tally.isEmpty
-                ? 'No verdicts annotated yet. Open a record and use '
-                    '"Your assessment" to add one.'
-                : '${tally.annotated} of your records carry a declaration.',
-            style: TextStyle(
-                color: DeepGuardColors.textMuted.withAlpha(200),
-                fontSize: 10, height: 1.4),
+                ? 'No record here carries metadata the cross-check can use. '
+                    'That is the normal case — most files have none.'
+                : '${tally.evidenced} of your records carried usable file '
+                    'evidence. The rest said nothing either way.',
+            // Solid textMuted at 11px. It was textMuted.withAlpha(200) at 10px,
+            // which measured 2.04:1 — the footnote nobody could read.
+            style: const TextStyle(
+                color: DeepGuardColors.textMuted,
+                fontSize: 11, height: 1.4),
           ),
           const SizedBox(height: 10),
           Row(children: [
@@ -805,21 +810,21 @@ class _OutcomeTallyCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(6),
                       color: DeepGuardColors.surfaceDark.withAlpha(120),
                       border: Border.all(
-                          color: DeepGuardColors.textMuted.withAlpha(40)),
+                          color: DeepGuardColors.glassBorder),
                     ),
                     child: Column(children: [
                       Text('${values[i]}',
                           style: TextStyle(
                               color: values[i] > 0
                                   ? DeepGuardColors.textPrimary
-                                  : DeepGuardColors.textMuted.withAlpha(120),
+                                  : DeepGuardColors.textMuted,
                               fontSize: 15, fontWeight: FontWeight.w800,
                               fontFamily: 'monospace')),
                       const SizedBox(height: 2),
                       Text(_cells[i].$1,
-                          style: TextStyle(
+                          style: const TextStyle(
                               color: DeepGuardColors.textMuted,
-                              fontSize: 9, letterSpacing: 1,
+                              fontSize: 11, letterSpacing: 1,
                               fontFamily: 'monospace')),
                     ]),
                   ),
@@ -829,13 +834,14 @@ class _OutcomeTallyCard extends StatelessWidget {
           ]),
           const SizedBox(height: 8),
           Text(
-            'FP = False-Manipulated · FN = False-Authentic. Declarations '
-            'recorded on this device — not the model\'s benchmark '
-            'accuracy (Image 84.82% / Video 71.67%), which comes from the '
+            'FP = False-Manipulated · FN = False-Authentic. Derived from '
+            'metadata embedded in each file, which attributes the tool that '
+            'wrote it. Not the model\'s benchmark accuracy '
+            '(Image 84.82% / Video 71.67%), which comes from the '
             'held-out test set.',
-            style: TextStyle(
-                color: DeepGuardColors.textMuted.withAlpha(170),
-                fontSize: 9, height: 1.4),
+            style: const TextStyle(
+                color: DeepGuardColors.textMuted,
+                fontSize: 11, height: 1.4),
           ),
         ],
       ),
@@ -876,24 +882,25 @@ class _HistoryTile extends StatelessWidget {
           children: [
             Text(entry.fileName,
                 style: const TextStyle(color: DeepGuardColors.textPrimary,
-                    fontSize: 12, fontWeight: FontWeight.w600),
+                    fontSize: 13, fontWeight: FontWeight.w600),
                 overflow: TextOverflow.ellipsis, maxLines: 1),
             const SizedBox(height: 3),
             Text(entry.formattedDate,
-                style: TextStyle(color: DeepGuardColors.textMuted.withAlpha(160),
-                    fontSize: 10, fontFamily: 'monospace')),
+                style: const TextStyle(color: DeepGuardColors.textMuted,
+                    fontSize: 11, fontFamily: 'monospace')),
             if (!entry.fileExists)
-              Text('File unavailable',
-                  style: TextStyle(color: DeepGuardColors.warning.withAlpha(180),
-                      fontSize: 9)),
-            // The self-reported position, if the user recorded one. Neutral
-            // grey on purpose: this is a note about the verdict, not a verdict.
+              const Text('File unavailable',
+                  style: TextStyle(color: DeepGuardColors.warning,
+                      fontSize: 11)),
+            // The cross-check position, if the file's own metadata evidenced
+            // one. Neutral grey on purpose: this is a note about the verdict,
+            // not a verdict.
             if (entry.outcome != null)
               Text(
                 '${entry.outcome!.shortCode} · ${entry.outcome!.uiTag}',
-                style: TextStyle(
-                    color: DeepGuardColors.textSecondary.withAlpha(200),
-                    fontSize: 9, fontFamily: 'monospace'),
+                style: const TextStyle(
+                    color: DeepGuardColors.textSecondary,
+                    fontSize: 11, fontFamily: 'monospace'),
               ),
           ],
         )),
@@ -907,11 +914,14 @@ class _HistoryTile extends StatelessWidget {
           ),
           child: Column(children: [
             Text(entry.resultLabel,
-                style: TextStyle(color: entry.resultColor, fontSize: 11,
+                style: TextStyle(color: entry.resultTextColor, fontSize: 11,
                     fontWeight: FontWeight.w800, fontFamily: 'monospace')),
+            // Same hue at full strength, lighter by weight instead of by
+            // alpha: the old withAlpha(180) at 9px sat under 2:1 on this chip.
             Text('${entry.confidencePercent.toStringAsFixed(0)}%',
-                style: TextStyle(color: entry.resultColor.withAlpha(180),
-                    fontSize: 9, fontFamily: 'monospace')),
+                style: TextStyle(color: entry.resultTextColor,
+                    fontSize: 11, fontWeight: FontWeight.w400,
+                    fontFamily: 'monospace')),
           ]),
         ),
       ]),
@@ -1019,13 +1029,16 @@ class _BackupBtn extends StatelessWidget {
         child: FittedBox(
           fit: BoxFit.scaleDown,
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(icon, color: accent.withAlpha((220 * alpha).round()),
+            // Full accent when enabled. The 220/230 alphas were a *constant*
+            // dim, not a disabled state, and secondary at 230 over its own
+            // tinted fill sat under the AA floor on a normal, usable button.
+            Icon(icon, color: enabled ? accent : accent.withAlpha(100),
                 size: 15),
             const SizedBox(width: 8),
             Text(label,
                 style: TextStyle(
-                    color: accent.withAlpha((230 * alpha).round()),
-                    fontSize: 10.5,
+                    color: enabled ? accent : accent.withAlpha(104),
+                    fontSize: 11,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.8,
                     fontFamily: 'monospace')),

@@ -1,17 +1,15 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
 import '../theme/app_theme.dart';
 import '../models/prediction_result.dart';
 import '../models/provenance_snapshot.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/confidence_gauge.dart';
 import '../widgets/framing_evidence_overlay.dart';
-import '../widgets/outcome_declaration.dart';
+import '../widgets/outcome_flag.dart';
 import '../services/media_provenance_service.dart';
 import '../services/profile_service.dart';
 
@@ -46,11 +44,6 @@ class ResultScreen extends StatelessWidget {
   /// fresh/live analysis.
   final ProvenanceSnapshot? historyProvenance;
 
-  /// What the user already declared about this record's media — 'authentic',
-  /// 'manipulated', or null. Only ever set when replaying from history, so a
-  /// live analysis opens on the question rather than on an answer.
-  final String? historyDeclaredTruth;
-
   const ResultScreen({
     super.key,
     required this.result,
@@ -59,7 +52,6 @@ class ResultScreen extends StatelessWidget {
     required this.onGoHome,
     this.isHistory = false,
     this.historyProvenance,
-    this.historyDeclaredTruth,
   });
 
   // ── Derived display values ─────────────────────────────────────────────────
@@ -86,8 +78,8 @@ class ResultScreen extends StatelessWidget {
   bool get _isImage     => result.mediaType == MediaType.image;
 
   /// The verdict in the same vocabulary a history record stores, so the
-  /// self-reported outcome below and the saved record speak one language.
-  /// Null for an error verdict, which has nothing to score.
+  /// provenance cross-check below and the saved record speak one language.
+  /// Null for an error verdict, which has nothing to check.
   String? get _verdictKey {
     if (result.result == null) return null;
     return _isAuthentic ? 'authentic' : 'manipulated';
@@ -244,14 +236,13 @@ class ResultScreen extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 28,
                               fontWeight: FontWeight.w900,
-                              color: result.resultColor,
+                              // resultTextColor, not resultColor: at 28px this
+                              // is large text and `fake`'s 4.04:1 on a card
+                              // would clear the 3:1 large-text bar, but this is
+                              // the single most-read string in the app and the
+                              // red is the one token that drops below 4.5:1.
+                              color: result.resultTextColor,
                               letterSpacing: 4,
-                              shadows: [
-                                Shadow(
-                                  color: result.resultColor.withValues(alpha: 0.45),
-                                  blurRadius: 24,
-                                ),
-                              ],
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -262,9 +253,11 @@ class ResultScreen extends StatelessWidget {
                                 ? 'No signs of manipulation detected'
                                 : 'AI manipulation patterns detected',
                             textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: DeepGuardColors.textSecondary
-                                  .withValues(alpha: 0.85),
+                            style: const TextStyle(
+                              // Solid textSecondary. The 0.85 alpha looked
+                              // harmless and measured 4.49:1 on a card — under
+                              // the floor, on the surface this card sits on.
+                              color: DeepGuardColors.textSecondary,
                               fontSize: 13,
                             ),
                           ),
@@ -293,7 +286,7 @@ class ResultScreen extends StatelessWidget {
                                 Text(
                                   _internalClass,
                                   style: TextStyle(
-                                    color: result.resultColor,
+                                    color: result.resultTextColor,
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,
                                     fontFamily: 'monospace',
@@ -323,7 +316,7 @@ class ResultScreen extends StatelessWidget {
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
                                   color: DeepGuardColors.textMuted,
-                                  fontSize: 9,
+                                  fontSize: 11,
                                   letterSpacing: 1,
                                   height: 1.35,
                                 )),
@@ -331,7 +324,7 @@ class ResultScreen extends StatelessWidget {
                             Text(
                               '${result.confidencePercentage.toStringAsFixed(2)}%',
                               style: TextStyle(
-                                color: result.resultColor,
+                                color: result.resultTextColor,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 17,
                               ),
@@ -359,7 +352,7 @@ class ResultScreen extends StatelessWidget {
                             const Text('MEDIA TYPE',
                                 style: TextStyle(
                                   color: DeepGuardColors.textMuted,
-                                  fontSize: 9,
+                                  fontSize: 11,
                                   letterSpacing: 1.5,
                                 )),
                             const SizedBox(height: 4),
@@ -383,20 +376,20 @@ class ResultScreen extends StatelessWidget {
                               vertical: 16, horizontal: 12),
                           child: Column(children: [
                             Icon(result.resultIcon,
-                                color: result.resultColor.withValues(alpha: 0.7),
+                                color: result.resultColor.withValues(alpha: 0.8),
                                 size: 22),
                             const SizedBox(height: 8),
                             const Text('CLASS',
                                 style: TextStyle(
                                   color: DeepGuardColors.textMuted,
-                                  fontSize: 9,
+                                  fontSize: 11,
                                   letterSpacing: 1.5,
                                 )),
                             const SizedBox(height: 4),
                             Text(
                               _internalClass,
                               style: TextStyle(
-                                color: result.resultColor,
+                                color: result.resultTextColor,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
                                 fontFamily: 'monospace',
@@ -406,80 +399,6 @@ class ResultScreen extends StatelessWidget {
                         ),
                       ),
                     ]),
-                    const SizedBox(height: 10),
-
-                    // ── Safeguard: prediction confidence ≠ benchmark accuracy ─
-                    Text(
-                      'Prediction Confidence is the model\'s raw output for '
-                      'this individual file only. It is separate from the '
-                      'model\'s benchmark evaluation accuracy '
-                      '(${_isImage ? 'Image: 84.82%' : 'Video: 71.67%'}), '
-                      'which is a dataset-level metric and NOT the confidence '
-                      'of this prediction. Prediction confidence represents '
-                      'the model\'s output for this media and does not '
-                      'guarantee that the media is authentic or manipulated.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: DeepGuardColors.textMuted,
-                        fontSize: 10.5,
-                        height: 1.45,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // ── Out-of-scope reminder for very-high-confidence Authentic ─
-                    // The classifier detects FACE-based deepfake manipulation only.
-                    // A near-100% "Authentic" can simply mean the input is out-of-
-                    // distribution (AI-generated photo, graphic, heavy edit). The
-                    // raw Prediction Confidence is intentionally left UNCHANGED —
-                    // this note only frames how the number should be interpreted.
-                    if (_isAuthentic &&
-                        result.confidencePercentage >= 95.0) ...[
-                      GlassCard(
-                        padding: const EdgeInsets.all(14),
-                        gradient: [
-                          DeepGuardColors.info.withValues(alpha: 0.10),
-                          Colors.transparent
-                        ],
-                        child: Row(children: [
-                          const Icon(Icons.info_outline,
-                              color: DeepGuardColors.info, size: 20),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'High-confidence "Authentic" \u2014 scope reminder',
-                                  style: TextStyle(
-                                    color: DeepGuardColors.info,
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                const Text(
-                                  'DeepGuard detects face-based deepfake '
-                                  'manipulation. A very high Authentic confidence '
-                                  'means no such manipulation was found \u2014 it '
-                                  'does NOT confirm the media is human-made, and it '
-                                  'may not flag AI-generated images, graphics, or '
-                                  'heavy edits that fall outside its training. See '
-                                  'the provenance and similar-imagery match below for '
-                                  'origin clues.',
-                                  style: TextStyle(
-                                    color: DeepGuardColors.textMuted,
-                                    fontSize: 11,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ]),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
                   ],
 
                   // ── Media preview ──────────────────────────────────────────
@@ -492,7 +411,7 @@ class ResultScreen extends StatelessWidget {
                           'SUBMITTED MEDIA',
                           style: TextStyle(
                             color: DeepGuardColors.textMuted,
-                            fontSize: 10,
+                            fontSize: 11,
                             letterSpacing: 2,
                             fontFamily: 'monospace',
                           ),
@@ -551,14 +470,15 @@ class ResultScreen extends StatelessWidget {
                           framing: result.framing,
                           mutedColor: DeepGuardColors.textMuted,
                         ),
-                        // ── Self-reported outcome ───────────────────────────
-                        // The other half of the record: what the user says the
-                        // media actually is. Sits here, under the media it
-                        // describes, and never near the verdict it is scoring.
-                        OutcomeDeclarationSection(
+                        // ── Provenance cross-check ──────────────────────────
+                        // The disagreement, if there is one, between the
+                        // verdict and what this file's own metadata says. It
+                        // sits here, under the media it describes, and never
+                        // near the verdict it is scoring.
+                        OutcomeFlagBanner(
                           entryId: result.id,
                           detectionResult: _verdictKey,
-                          initialDeclaredTruth: historyDeclaredTruth,
+                          snapshot: historyProvenance,
                         ),
                       ],
                     ),
@@ -582,9 +502,11 @@ class ResultScreen extends StatelessWidget {
                         onPressed: onGoHome,
                         style: OutlinedButton.styleFrom(
                           foregroundColor: DeepGuardColors.textMuted,
-                          side: BorderSide(
-                              color:
-                                  DeepGuardColors.textMuted.withValues(alpha: 0.3)),
+                          // A control whose only edge was this line, so it has
+                          // to clear the 3:1 non-text floor. At alpha 0.3 over
+                          // the old muted grey it was nowhere near it.
+                          side: const BorderSide(
+                              color: DeepGuardColors.textMuted),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10)),
                           padding: const EdgeInsets.symmetric(vertical: 14),
@@ -652,8 +574,8 @@ class ResultScreen extends StatelessWidget {
                                         : 'This media shows signs of manipulation'),
                                 style: TextStyle(
                                   color: _isError
-                                      ? DeepGuardColors.fake
-                                      : result.resultColor,
+                                      ? DeepGuardColors.fakeText
+                                      : result.resultTextColor,
                                   fontWeight: FontWeight.w600,
                                   fontSize: 13,
                                 ),
@@ -716,8 +638,10 @@ class _ErrorCard extends StatelessWidget {
             children: [
               const Text(
                 'Analysis Failed',
+                // fakeText, not fake: this heading is painted on a card whose
+                // own gradient lifts the red it sits against.
                 style: TextStyle(
-                  color: DeepGuardColors.fake,
+                  color: DeepGuardColors.fakeText,
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
                 ),
@@ -957,10 +881,10 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
   bool _hasInternet = false;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
 
-  // Auto-trace results — loaded automatically on init when internet is present
-  TraceResult? _traceResult;
+  // Auto-trace result — the online C2PA content-credentials check, loaded
+  // automatically on init when internet is present. (The Google Lens
+  // reverse-image similarity trace was removed and is no longer run.)
   TraceResult? _c2paResult;
-  bool _traceLoading = false;
   bool _c2paLoading = false;
 
   // On-device metadata report (loaded once, reused for both UI + persistence)
@@ -982,7 +906,6 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
       // No network, no connectivity listener, no re-run, nothing to persist.
       _report = snap.toReport();
       _reportFuture = Future.value(_report);
-      _traceResult = snap.toLensTrace();
       _c2paResult = snap.toC2paTrace();
       _hasInternet = snap.hasAnyTrace; // reveal trace block only if it was captured
       _persisted = true;
@@ -1014,22 +937,21 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
   void _maybePersist() {
     if (_persisted || widget.isHistory || widget.entryId == null) return;
     if (_report == null) return;
-    final settled = !_hasInternet ||
-        (!_traceLoading &&
-            !_c2paLoading &&
-            _traceResult != null &&
-            _c2paResult != null);
+    final settled =
+        !_hasInternet || (!_c2paLoading && _c2paResult != null);
     if (!settled) return;
     _persisted = true;
-    final snap = ProvenanceSnapshot.from(_report!, _traceResult, _c2paResult);
+    // The Google Lens reverse-image trace was removed; persist a null lens
+    // slot so the existing snapshot schema and history replay stay intact.
+    final snap = ProvenanceSnapshot.from(_report!, null, _c2paResult);
     final svc = ProfileService();
     final profile = svc.activeProfile;
     if (profile == null) return;
+    // Persisting the settled snapshot is also what makes the provenance
+    // cross-check able to run: OutcomeFlagBanner listens for this write and
+    // re-derives the flag from the stored record. Nothing else is written here,
+    // so no verdict, confidence or model class can be altered by it.
     svc.updateHistoryProvenance(profile.id, widget.entryId!, snap);
-    // The same settled snapshot is the only moment the app holds independent
-    // evidence about this file, so it is also the only moment the derived
-    // declaration rule can run. It no-ops on any record a human has answered.
-    svc.applyAutoDeclaration(profile.id, widget.entryId!, snap);
   }
 
   @override
@@ -1089,91 +1011,36 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
       if (!mounted) return;
       if (online != _hasInternet) {
         setState(() => _hasInternet = online);
-        if (online && (_traceResult == null || _c2paResult == null)) {
+        if (online && _c2paResult == null) {
           _autoRunAllTraces();
         }
       }
     });
   }
 
-  /// Runs the SerpApi Google Lens reverse-image trace. For a video, extracts
-  /// one representative frame first. Auxiliary only — never the verdict.
-  Future<TraceResult> _runLensTrace() async {
-    const engine = 'Google Lens';
-    try {
-      final svc = MediaProvenanceService();
-      Uint8List bytes;
-      if (widget.isVideo) {
-        // Grab a representative frame. The very first frame of social clips is
-        // often black or a logo splash, which Google Lens can't match — so try
-        // a point a couple seconds in first, then fall back toward the start.
-        Uint8List? frame;
-        for (final ms in const [2000, 1000, 3000, 500, 0]) {
-          frame = await VideoThumbnail.thumbnailData(
-            video: widget.filePath,
-            imageFormat: ImageFormat.JPEG,
-            maxWidth: 1024,
-            quality: 80,
-            timeMs: ms,
-          );
-          if (frame != null && frame.isNotEmpty) break;
-        }
-        if (frame == null || frame.isEmpty) {
-          return const TraceResult(
-            engine: engine,
-            status: 'not_found',
-            summary: 'No representative frame could be read from the video.',
-          );
-        }
-        bytes = frame;
-      } else {
-        final file = File(widget.filePath);
-        if (!await file.exists()) {
-          return const TraceResult(
-            engine: engine,
-            status: 'error',
-            summary: 'File not found on device.',
-          );
-        }
-        bytes = await file.readAsBytes();
-      }
-      return svc.traceOnSerpApi(bytes);
-    } catch (_) {
-      return const TraceResult(
-        engine: engine,
-        status: 'error',
-        summary: 'Could not complete trace.',
-      );
-    }
-  }
-
-  /// Fires the reverse-image source trace (SerpApi Google Lens) and the C2PA
-  /// check in parallel when internet is confirmed. For a video, one
-  /// representative frame is extracted and traced (auxiliary only — never the
-  /// Hybrid CNN-RNN verdict).
+  /// Runs the online auto-trace when internet is confirmed. Only the C2PA
+  /// content-credentials check runs now — the Google Lens reverse-image
+  /// similarity trace was removed (its visually-similar web matches could be
+  /// misleading) and is no longer called or displayed. Auxiliary only; never
+  /// affects the Hybrid CNN-RNN verdict.
   Future<void> _autoRunAllTraces() async {
     if (!mounted) return;
     setState(() {
-      _traceLoading = true;
       _c2paLoading = true;
     });
 
     final svc = MediaProvenanceService();
-    // Run both concurrently
-    final results = await Future.wait([
-      _runLensTrace(),
-      svc.traceOnC2PA(widget.filePath).catchError((_) => const TraceResult(
+    final c2pa = await svc.traceOnC2PA(widget.filePath).catchError(
+          (_) => const TraceResult(
             engine: 'C2PA Content Credentials',
             status: 'error',
             summary: 'Could not complete trace.',
-          )),
-    ]);
+          ),
+        );
     if (!mounted) return;
     setState(() {
-      _traceResult = results[0];
-      _c2paResult  = results[1];
-      _traceLoading = false;
-      _c2paLoading  = false;
+      _c2paResult = c2pa;
+      _c2paLoading = false;
     });
     // Source trace has settled — capture the snapshot into the history record.
     _maybePersist();
@@ -1204,6 +1071,13 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
     // authenticity verdict. Classification comes only from the CNN-RNN model.
     final statusColor = result.status == 'found'
         ? DeepGuardColors.info
+        : result.status == 'not_found'
+            ? DeepGuardColors.textSecondary
+            : Colors.orangeAccent;
+    // Same status, but the variant that survives being read as text: `info`
+    // sits at 3.91:1 on a card, and this sheet's body is a card.
+    final statusTextColor = result.status == 'found'
+        ? DeepGuardColors.infoText
         : result.status == 'not_found'
             ? DeepGuardColors.textSecondary
             : Colors.orangeAccent;
@@ -1287,7 +1161,7 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
                       child: Text(
                         result.summary,
                         style: TextStyle(
-                          color: statusColor,
+                          color: statusTextColor,
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                           height: 1.4,
@@ -1346,146 +1220,6 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
           ),
         ),
       ),
-    );
-  }
-
-  /// Builds the "Similar Imagery Found" (reverse-image match) section.
-  ///
-  /// Shows ONLY recognisable platform names + icons derived from the source
-  /// trace. It NEVER displays URLs, profile links, usernames or any PII, and
-  /// there are NO clickable elements. This is supplementary information that
-  /// has no effect on the Authentic / Manipulated classification above.
-  Widget _buildPossibleSource() {
-    // Defense-in-depth: filter explicit/adult tokens again here, so even a
-    // snapshot saved before the trace-side filter was added can never surface
-    // them. Only recognised, clean platform display names remain.
-    final platforms = (_traceResult?.sourcePlatforms ?? const <String>[])
-        .where((p) => !MediaProvenanceService.containsAdultTerm(p))
-        .toList();
-
-    Widget body;
-    if (!_hasInternet) {
-      body = const Text(
-        'No similar-imagery trace available.',
-        style: TextStyle(
-          color: DeepGuardColors.textSecondary,
-          fontSize: 13,
-          height: 1.4,
-        ),
-      );
-    } else if (_traceLoading) {
-      body = Row(
-        children: [
-          const SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: DeepGuardColors.primary,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            'Scanning matched web sources...',
-            style: TextStyle(
-              color: DeepGuardColors.textMuted,
-              fontSize: 12,
-              fontFamily: 'monospace',
-            ),
-          ),
-        ],
-      );
-    } else if (platforms.isEmpty) {
-      body = const Text(
-        'No visually similar imagery found online.',
-        style: TextStyle(
-          color: DeepGuardColors.textSecondary,
-          fontSize: 13,
-          height: 1.4,
-        ),
-      );
-    } else {
-      // Reverse-image search can only find visually SIMILAR imagery hosted
-      // elsewhere — it can never know where this file actually came from. A
-      // locally saved or edited clip (e.g. from CapCut) will still match
-      // unrelated look-alike content online. Platforms are therefore shown as
-      // one equal-ranked list (no highlighted "primary" source) under explicit
-      // similarity wording. This NEVER affects the Authentic / Manipulated
-      // classification.
-      final shown = platforms.take(6).toList();
-      body = Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Visually similar content exists on:',
-            style: TextStyle(
-              color: DeepGuardColors.textMuted,
-              fontSize: 12,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final p in shown) _SourceChip(platform: p),
-            ],
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            'These are look-alike matches only — this does NOT identify where '
-            'the file came from. A local or edited video can still match '
-            'unrelated web content.',
-            style: TextStyle(
-              color: DeepGuardColors.textMuted,
-              fontSize: 10.5,
-              fontStyle: FontStyle.italic,
-              height: 1.4,
-            ),
-          ),
-        ],
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Divider(color: DeepGuardColors.glassBorder, height: 24),
-        Row(
-          children: [
-            Icon(Icons.image_search,
-                color: DeepGuardColors.secondary, size: 16),
-            const SizedBox(width: 6),
-            const Expanded(
-              child: Text(
-                'SIMILAR IMAGERY FOUND',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: DeepGuardColors.textMuted,
-                  fontSize: 9,
-                  letterSpacing: 1.5,
-                  fontFamily: 'monospace',
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          'Supplementary trace information only — the detected platform list '
-          'never affects the Authentic / Manipulated classification.',
-          style: TextStyle(
-            color: DeepGuardColors.textMuted,
-            fontSize: 10,
-            fontStyle: FontStyle.italic,
-            height: 1.4,
-          ),
-        ),
-        const SizedBox(height: 12),
-        body,
-      ],
     );
   }
 
@@ -1562,7 +1296,7 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
                         'ORIGIN & DIGITAL PROVENANCE',
                         style: TextStyle(
                           color: DeepGuardColors.textMuted,
-                          fontSize: 9.5,
+                          fontSize: 11,
                           letterSpacing: 1.2,
                           fontFamily: 'monospace',
                           fontWeight: FontWeight.w600,
@@ -1592,9 +1326,14 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
                                   : report.category == 'Image Editor'
                                       ? 'EDITOR METADATA'
                                       : 'UNVERIFIED SOURCE',
-                          style: TextStyle(
-                            color: badgeColor,
-                            fontSize: 9.5,
+                          // The label is white and the *chip* carries the hue.
+                          // Tinted-on-tinted was the trap here: this text sat on
+                          // badgeColor.withAlpha(38) of the same colour, so its
+                          // contrast depended on which of four badge colours
+                          // happened to be selected.
+                          style: const TextStyle(
+                            color: DeepGuardColors.textPrimary,
+                            fontSize: 11,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 0.4,
                           ),
@@ -1614,7 +1353,7 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
                 'imply Authentic or Manipulated.',
                 style: TextStyle(
                   color: DeepGuardColors.textMuted,
-                  fontSize: 10,
+                  fontSize: 11,
                   fontStyle: FontStyle.italic,
                   height: 1.4,
                 ),
@@ -1657,8 +1396,11 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
                   'Confirms the capture device only. A photograph of a screen '
                   'or of a printed image carries the same genuine tag, so this '
                   'does not certify the scene as real.',
-                  style: TextStyle(
-                    color: DeepGuardColors.textMuted.withAlpha(220),
+                  // Full textMuted, not .withAlpha(220): this is the sentence
+                  // that stops a camera tag being read as a certificate, and it
+                  // was the dimmest block of text on the screen.
+                  style: const TextStyle(
+                    color: DeepGuardColors.textMuted,
                     fontSize: 11,
                     fontFamily: 'monospace',
                     height: 1.4,
@@ -1731,17 +1473,17 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
                 const Divider(color: DeepGuardColors.glassBorder, height: 24),
                 Row(
                   children: [
-                    Icon(Icons.travel_explore_rounded,
+                    Icon(Icons.verified_user_outlined,
                         color: DeepGuardColors.secondary, size: 16),
                     const SizedBox(width: 6),
                     const Expanded(
                       child: Text(
-                        'REVERSE-IMAGE SIMILARITY',
+                        'CONTENT CREDENTIALS',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: DeepGuardColors.textMuted,
-                          fontSize: 9,
+                          fontSize: 11,
                           letterSpacing: 1.5,
                           fontFamily: 'monospace',
                         ),
@@ -1750,9 +1492,12 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
                     const SizedBox(width: 8),
                     Text(
                       widget.isHistory ? 'SAVED SNAPSHOT' : 'AUTO-SCANNED',
-                      style: TextStyle(
-                        color: DeepGuardColors.primary.withAlpha(160),
-                        fontSize: 8,
+                      style: const TextStyle(
+                        // Solid primary at 11px. primary.withAlpha(160) measured
+                        // 3.78:1 worst case and 8px is below any large-text
+                        // exemption, so this badge was unreadable by design.
+                        color: DeepGuardColors.primary,
+                        fontSize: 11,
                         letterSpacing: 1.2,
                         fontFamily: 'monospace',
                       ),
@@ -1761,29 +1506,12 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
                 ),
                 const SizedBox(height: 10),
 
-                // NOTE: Both auto-traces run in _autoRunAllTraces(). The
-                // Google Lens trace derives the platform names shown in the
-                // Similar-imagery section below; the C2PA trace checks for
-                // embedded content credentials. Both are auxiliary only and
-                // never affect the Hybrid CNN-RNN classification.
-
-                // Google Lens reverse-image trace tile. Hidden when the file's
-                // own provenance is already confirmed AI-generated (a freshly
-                // synthesized image has no legitimate web source) OR when it is
-                // a genuine camera-hardware capture — the origin is the device
-                // itself, so a reverse-image match would only be misleading.
-                if (!report.isAiGenerated && !report.isCameraOriginal) ...[
-                  _InlineTraceResult(
-                    icon: Icons.travel_explore_rounded,
-                    label: 'GOOGLE LENS SIMILARITY',
-                    isLoading: _traceLoading,
-                    result: _traceResult,
-                    onRerun: (widget.isHistory || _loadingTrace != null)
-                        ? null
-                        : () => _runTrace('lens', _runLensTrace),
-                  ),
-                  const SizedBox(height: 10),
-                ],
+                // NOTE: The online auto-trace now runs only the C2PA check in
+                // _autoRunAllTraces(). The Google Lens reverse-image similarity
+                // trace was removed — its visually-similar web matches could be
+                // misleading — and is no longer called or displayed. C2PA is
+                // auxiliary only and never affects the Hybrid CNN-RNN
+                // classification.
 
                 // C2PA tile
                 _InlineTraceResult(
@@ -1800,17 +1528,6 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
                           ),
                 ),
               ],
-
-              // ── SIMILAR IMAGERY FOUND ────────────────────────────────────
-              // Supplementary component shown after the classification result, for
-              // both fresh analyses and history records. Derived ONLY from the
-              // source-trace platform names; never affects the Authentic/Manipulated
-              // decision. Falls back to "No visually similar imagery found online."
-              // when nothing is identified. Suppressed for confirmed AI-generated
-              // media (a synthesized image has no real web origin) and for genuine
-              // camera-hardware captures (the origin is the device itself).
-              if (!report.isAiGenerated && !report.isCameraOriginal)
-                _buildPossibleSource(),
             ],
           ),
         );
@@ -1847,6 +1564,17 @@ class _InlineTraceResult extends StatelessWidget {
         ? DeepGuardColors.textMuted
         : result!.status == 'found'
             ? DeepGuardColors.info
+            : result!.status == 'not_found'
+                ? DeepGuardColors.textSecondary
+                : Colors.orangeAccent;
+
+    // The same status in words. `info` is the identification blue and clears
+    // 3:1 as a mark, but at 3.91:1 on a card it cannot be read as text, so the
+    // sentence below it is painted with the brighter variant.
+    final Color statusTextColor = result == null
+        ? DeepGuardColors.textMuted
+        : result!.status == 'found'
+            ? DeepGuardColors.infoText
             : result!.status == 'not_found'
                 ? DeepGuardColors.textSecondary
                 : Colors.orangeAccent;
@@ -1891,7 +1619,7 @@ class _InlineTraceResult extends StatelessWidget {
                   label,
                   style: const TextStyle(
                     color: DeepGuardColors.textMuted,
-                    fontSize: 10,
+                    fontSize: 11,
                     letterSpacing: 0.5,
                     fontFamily: 'monospace',
                     fontWeight: FontWeight.w600,
@@ -1930,7 +1658,7 @@ class _InlineTraceResult extends StatelessWidget {
                         child: Text(
                           result!.summary,
                           style: TextStyle(
-                            color: statusColor,
+                            color: statusTextColor,
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
                             height: 1.3,
@@ -1975,85 +1703,6 @@ class _InlineTraceResult extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Similar-imagery platform chip
-// Shows ONLY a platform name + its icon. It is NOT tappable (no GestureDetector,
-// no link) and never exposes a URL, username or any other PII.
-// ─────────────────────────────────────────────────────────────────────────────
-class _SourceChip extends StatelessWidget {
-  final String platform;
-
-  const _SourceChip({required this.platform});
-
-  @override
-  Widget build(BuildContext context) {
-    final (icon, color) = _platformStyle(platform);
-    final asset = provenanceLogoAsset(platform);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withAlpha(26),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withAlpha(100)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(5),
-            child: asset != null
-                ? Image.asset(
-                    asset,
-                    width: 20,
-                    height: 20,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) =>
-                        Icon(icon, color: color, size: 20),
-                  )
-                : Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            platform,
-            style: const TextStyle(
-              color: DeepGuardColors.textPrimary,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Maps a platform display name to a representative icon and brand colour.
-/// Uses only long-standing generic Material icons (brand glyphs were removed
-/// from the Flutter SDK), so it stays version-safe. Unknown platforms fall
-/// back to a neutral globe icon.
-(IconData, Color) _platformStyle(String platform) {
-  switch (platform) {
-    case 'Facebook':
-      return (Icons.people, const Color(0xFF1877F2));
-    case 'Instagram':
-      return (Icons.camera, const Color(0xFFE4405F));
-    case 'Snapchat':
-      return (Icons.photo_camera, const Color(0xFFFFFC00));
-    case 'TikTok':
-      return (Icons.music_note, const Color(0xFF00F2EA));
-    case 'X (Twitter)':
-      return (Icons.alternate_email, const Color(0xFF1DA1F2));
-    case 'YouTube':
-      return (Icons.smart_display, const Color(0xFFFF0000));
-    case 'Reddit':
-      return (Icons.forum, const Color(0xFFFF4500));
-    case 'LinkedIn':
-      return (Icons.work, const Color(0xFF0A66C2));
-    default:
-      return (Icons.public, DeepGuardColors.secondary);
   }
 }
 
@@ -2146,6 +1795,12 @@ class _GeneratorLogoBadge extends StatelessWidget {
             : category == 'Image Editor'
                 ? Colors.purpleAccent
                 : DeepGuardColors.secondary;
+    // The same hue, lifted just far enough to read as words on every surface.
+    // These are vendor brand colours — ChatGPT's teal is #10A37F (3.1:1 on a
+    // card), Adobe's pink #FF2D8F, NVIDIA's green #76B900 — and none of them
+    // were chosen for legibility on a dark navy card. The mark keeps the real
+    // brand colour; only the text borrows the accessible version of it.
+    final Color safeColor = DeepGuardContrast.textSafeOn(color);
     // AI tools get a cleaned display name; other sources show the detected
     // app label verbatim (e.g. "CapCut Video Editor", "Samsung Camera Capture").
     final String name = isAi ? aiName : sourceApp;
@@ -2190,7 +1845,7 @@ class _GeneratorLogoBadge extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  color: color,
+                  color: safeColor,
                   fontSize: 13.5,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0.2,
@@ -2200,8 +1855,11 @@ class _GeneratorLogoBadge extends StatelessWidget {
               Text(
                 caption,
                 style: const TextStyle(
+                  // Solid textMuted at 11px. 8.5px is not a size anyone can
+                  // read, and no contrast exception applies below 24px (or
+                  // 18.66px bold), so this caption was outside AA twice over.
                   color: DeepGuardColors.textMuted,
-                  fontSize: 8.5,
+                  fontSize: 11,
                   letterSpacing: 1.1,
                   fontFamily: 'monospace',
                 ),

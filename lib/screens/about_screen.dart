@@ -3,6 +3,15 @@ import '../theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/deepguard_app_bar.dart';
 
+/// Release label shown in the About footer.
+///
+/// This must be kept in step with `version:` in pubspec.yaml, because the
+/// release convention names the shipped artifact after it — the versioned
+/// `DeepGuard-…apk` copy at the repository root. It sat at v1.1.0 for two
+/// releases, which is how a binary ends up describing a build that is not
+/// itself.
+const String kDeepGuardVersion = '1.3.0';
+
 /// DeepGuard About Screen.
 ///
 /// A formal, informational About page presenting DeepGuard as a thesis-based
@@ -79,9 +88,11 @@ class AboutScreen extends StatelessWidget {
                 const SizedBox(height: 24),
                 Center(
                   child: Text(
-                    'DeepGuard v1.1.0',
+                    'DeepGuard v$kDeepGuardVersion',
+                    // Solid textMuted. Half-alpha on the old muted grey put the
+                    // version line itself at about 1.7:1.
                     style: TextStyle(
-                      color: DeepGuardColors.textMuted.withValues(alpha: 0.5),
+                      color: DeepGuardColors.textMuted,
                       fontSize: 11,
                       letterSpacing: 1,
                     ),
@@ -117,7 +128,12 @@ class AboutScreen extends StatelessWidget {
                 ),
               ],
             ),
-            child: const Icon(Icons.visibility, color: Colors.white, size: 28),
+            child: Icon(Icons.visibility,
+                // Dark ink over the cyan→violet gradient: white measures
+                // 1.88:1 at the cyan end, under even the 3:1 non-text floor.
+                color: DeepGuardContrast.inkOnAll(
+                    DeepGuardColors.primaryGradient),
+                size: 28),
           ),
           const SizedBox(height: 12),
           const Text(
@@ -274,7 +290,7 @@ class AboutScreen extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 12),
       child: Icon(
         Icons.arrow_drop_down,
-        color: DeepGuardColors.textMuted.withValues(alpha: 0.6),
+        color: DeepGuardColors.textMuted,
         size: 22,
       ),
     );
@@ -456,8 +472,11 @@ class AboutScreen extends StatelessWidget {
             ),
             child: Text(
               '$n',
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                // Same rule as the header emblem: dark ink, not white, so the
+                // step digit clears the floor on both gradient stops.
+                color: DeepGuardContrast.inkOnAll(
+                    DeepGuardColors.primaryGradient),
                 fontSize: 13,
                 fontWeight: FontWeight.w900,
                 fontFamily: 'monospace',
@@ -496,8 +515,10 @@ class AboutScreen extends StatelessWidget {
         padding: EdgeInsets.only(bottom: pad ? 12 : 0),
         child: Text(
           text,
+          // Solid textSecondary — this is the About screen's main prose, and
+          // 0.85 alpha was shaving the margin off the AA floor.
           style: TextStyle(
-            color: DeepGuardColors.textSecondary.withValues(alpha: 0.85),
+            color: DeepGuardColors.textSecondary,
             fontSize: 13,
             height: 1.6,
           ),
