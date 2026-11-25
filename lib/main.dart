@@ -11,19 +11,14 @@ import 'screens/profile_screen.dart';
 import 'models/prediction_result.dart';
 import 'models/history_entry.dart';
 import 'services/profile_service.dart';
+import 'services/theme_service.dart';
 
 @pragma('vm:entry-point')
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.light,
-  ));
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   await ProfileService().init();
+  await ThemeService().init();
   runApp(const DeepGuardApp());
 }
 
@@ -32,18 +27,32 @@ class DeepGuardApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'DeepGuard',
-      debugShowCheckedModeBanner: false,
-      theme: DeepGuardTheme.darkTheme,
-      // Use a Navigator key so MainShell can push routes from callbacks
-      home: const _IntroGate(),
+    final themeService = ThemeService();
+    return ListenableBuilder(
+      listenable: themeService,
+      builder: (context, _) {
+        return MaterialApp(
+          title: 'DeepGuard',
+          debugShowCheckedModeBanner: false,
+          theme: DeepGuardTheme.lightTheme,
+          darkTheme: DeepGuardTheme.darkTheme,
+          themeMode: themeService.themeMode,
+          builder: (context, child) {
+            final brightness = Theme.of(context).brightness;
+            return AnnotatedRegion<SystemUiOverlayStyle>(
+              value: DeepGuardTheme.overlayStyleFor(brightness),
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
+          home: const _IntroGate(),
+        );
+      },
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Intro gate: Splash → Onboarding → MainShell (every launch)
+// Intro gate: Splash → Onboarding (first launch) → MainShell
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _IntroGate extends StatefulWidget {
@@ -55,17 +64,32 @@ class _IntroGate extends StatefulWidget {
 class _IntroGateState extends State<_IntroGate> {
   bool _splashDone = false;
 
-  void _onSplashDone() => setState(() => _splashDone = true);
+  void _onSplashDone() {
+    if (!mounted) return;
+    if (ThemeService().onboardingCompleted) {
+      _enterMainShell();
+    } else {
+      setState(() => _splashDone = true);
+    }
+  }
 
-  void _onOnboardingDone() {
-    // pushReplacement here is intentional — the intro should not be in the
-    // back stack. Pressing back from MainShell exits the app (correct).
+  Future<void> _onOnboardingDone() async {
+    await ThemeService().setOnboardingCompleted(true);
+    if (!mounted) return;
+    _enterMainShell();
+  }
+
+  void _enterMainShell() {
+    final reduceMotion = shouldReduceMotion(context);
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => const MainShell(),
-        transitionsBuilder: (_, anim, __, child) =>
-            FadeTransition(opacity: anim, child: child),
-        transitionDuration: const Duration(milliseconds: 500),
+        transitionsBuilder: (_, anim, __, child) => reduceMotion
+            ? child
+            : FadeTransition(opacity: anim, child: child),
+        transitionDuration: reduceMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 280),
       ),
     );
   }
@@ -78,7 +102,7 @@ class _IntroGateState extends State<_IntroGate> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main navigation shell — bottom nav only, no screen stack
+// Main navigation shell — accessible Material 3 NavigationBar
 // ─────────────────────────────────────────────────────────────────────────────
 
 class MainShell extends StatefulWidget {
@@ -90,14 +114,19 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
-
-  // Bumped to force UploadScreen to rebuild with a fresh state. IndexedStack
-  // keeps every tab alive, so without this the previously picked media would
-  // still be shown when returning to the Analyze tab. "Analyze Another" bumps
-  // it so the user lands back on the media-selection step.
   int _uploadSession = 0;
+  UploadInitialAction _pendingUploadAction = UploadInitialAction.none;
 
-  // ── Navigate to ProcessingScreen via Navigator.push ────────────────────────
+  void _openUploadWithAction(UploadInitialAction action) {
+    setState(() {
+      _currentIndex = 1;
+      _pendingUploadAction = action;
+      if (action != UploadInitialAction.none) {
+        _uploadSession++;
+      }
+    });
+  }
+
   void _onFileSelected(String filePath, String mediaType, MediaSource source) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -112,10 +141,9 @@ class _MainShellState extends State<MainShell> {
   }
 
   void _onProcessingComplete(PredictionResult result) {
-    // Save to profile history
     final service = ProfileService();
     final profile = service.activeProfile;
-    if (profile != null) {
+    if (profile != null && result.status == PredictionStatus.completed) {
       final isFake = result.result == DetectionResult.manipulated;
       final entry = HistoryEntry(
         id: result.id,
@@ -127,30 +155,26 @@ class _MainShellState extends State<MainShell> {
         confidence: result.confidence,
         timestamp: result.timestamp,
         framing: result.framing,
+        gradCam: result.gradCam,
       );
       service.saveHistoryEntry(profile.id, entry);
       service.incrementStats(profile.id, isFake: isFake);
     }
 
-    // Replace the ProcessingScreen with ResultScreen in the Navigator stack
-    // so pressing back from ResultScreen goes back to MainShell (not Processing)
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => ResultScreen(
           result: result,
           filePath: result.filePath ?? '',
           onAnalyzeAnother: () {
-            // Pop ResultScreen → back to the Analyze tab, and reset
-            // UploadScreen so it shows the media-selection step again instead
-            // of the previously uploaded file.
             Navigator.of(context).pop();
             setState(() {
               _currentIndex = 1;
+              _pendingUploadAction = UploadInitialAction.none;
               _uploadSession++;
             });
           },
           onGoHome: () {
-            // Pop ResultScreen → back to Home tab
             Navigator.of(context).pop();
             setState(() => _currentIndex = 0);
           },
@@ -161,68 +185,76 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    final palette = DeepGuardPalette.of(context);
     return PopScope(
-      // Allow back button to exit app when on MainShell (correct behaviour)
-      canPop: true,
+      canPop: _currentIndex == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _currentIndex != 0) {
+          setState(() => _currentIndex = 0);
+        }
+      },
       child: Scaffold(
         body: IndexedStack(
           index: _currentIndex,
           children: [
             HomeScreen(
-              onAnalyzeTap: () => setState(() => _currentIndex = 1),
+              onAnalyzeTap: () =>
+                  _openUploadWithAction(UploadInitialAction.none),
+              onUploadImageTap: () =>
+                  _openUploadWithAction(UploadInitialAction.pickImage),
+              onUploadVideoTap: () =>
+                  _openUploadWithAction(UploadInitialAction.pickVideo),
+              onOpenHistoryTap: () => setState(() => _currentIndex = 3),
             ),
             UploadScreen(
-              key: ValueKey(_uploadSession),
+              key: ValueKey('$_uploadSession-${_pendingUploadAction.name}'),
+              initialAction: _pendingUploadAction,
+              onInitialActionHandled: () {
+                _pendingUploadAction = UploadInitialAction.none;
+              },
               onFileSelected: _onFileSelected,
             ),
             const AboutScreen(),
             const ProfileScreen(),
           ],
         ),
-        bottomNavigationBar: _buildNav(),
-      ),
-    );
-  }
-
-  Widget _buildNav() {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: DeepGuardColors.glassBorder, width: 0.5),
+        bottomNavigationBar: Container(
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: palette.border, width: 1),
+            ),
+          ),
+          child: NavigationBar(
+            selectedIndex: _currentIndex,
+            onDestinationSelected: (i) => setState(() => _currentIndex = i),
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.shield_outlined),
+                selectedIcon: Icon(Icons.shield_rounded),
+                label: 'Home',
+                tooltip: 'Home',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.add_photo_alternate_outlined),
+                selectedIcon: Icon(Icons.add_photo_alternate_rounded),
+                label: 'Analyze',
+                tooltip: 'Analyze Media',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.info_outline_rounded),
+                selectedIcon: Icon(Icons.info_rounded),
+                label: 'About',
+                tooltip: 'About DeepGuard',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.person_outline_rounded),
+                selectedIcon: Icon(Icons.person_rounded),
+                label: 'Settings',
+                tooltip: 'Profile, History, and Theme Settings',
+              ),
+            ],
+          ),
         ),
-      ),
-      child: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (i) => setState(() => _currentIndex = i),
-        backgroundColor: DeepGuardColors.surfaceDark,
-        selectedItemColor: DeepGuardColors.primary,
-        unselectedItemColor: DeepGuardColors.textMuted,
-        type: BottomNavigationBarType.fixed,
-        elevation: 0,
-        selectedFontSize: 11,
-        unselectedFontSize: 11,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.shield_outlined),
-            activeIcon: Icon(Icons.shield),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.add_photo_alternate_outlined),
-            activeIcon: Icon(Icons.add_photo_alternate),
-            label: 'Analyze',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.info_outline),
-            activeIcon: Icon(Icons.info),
-            label: 'About',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
       ),
     );
   }

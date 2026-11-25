@@ -2,184 +2,185 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/deepguard_app_bar.dart';
+import 'onboarding_screen.dart';
 
-/// Release label shown in the About footer.
-///
-/// This must be kept in step with `version:` in pubspec.yaml, because the
-/// release convention names the shipped artifact after it — the versioned
-/// `DeepGuard-…apk` copy at the repository root. It sat at v1.1.0 for two
-/// releases, which is how a binary ends up describing a build that is not
-/// itself.
+/// Release label shown in the About footer (synced with `pubspec.yaml`).
 const String kDeepGuardVersion = '1.3.0';
 
-/// DeepGuard About Screen.
+/// DeepGuard About Screen — accessible Light & Dark mode technical reference.
 ///
-/// A formal, informational About page presenting DeepGuard as a thesis-based
-/// mobile deepfake-detection application. This screen is explanatory only:
-/// it does NOT run or alter any detection, inference, preprocessing, or
-/// navigation logic.
+/// Preserves complete research documentation (Hybrid CNN–RNN architecture,
+/// EfficientNetB0, LSTM, Parallel Fusion, Neuro-Symbolic Reasoning, dataset
+/// evaluation reference, provenance scope, and responsible-use disclaimer) off
+/// the ordinary user homepage.
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});
 
+  void _replayWalkthrough(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (ctx) => OnboardingScreen(
+          onDone: () => Navigator.of(ctx).pop(),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final palette = DeepGuardPalette.of(context);
+
     return Scaffold(
-      extendBodyBehindAppBar: true,
+      backgroundColor: palette.backgroundSecondary,
       appBar: const DeepGuardAppBar(title: 'About DeepGuard'),
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: DeepGuardColors.backgroundGradient,
-          ),
-        ),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 12),
-                _header(),
-                const SizedBox(height: 24),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _header(context, palette),
+              const SizedBox(height: 24),
 
-                // ── 1. About DeepGuard ───────────────────────────────────────
-                _sectionHeading(1, 'About DeepGuard'),
-                _body(
-                  'DeepGuard is a mobile-based deepfake detection application '
-                  'designed to analyze image and video media and classify '
-                  'submitted content as either Authentic or Manipulated. All '
-                  'detection is performed on-device using a Hybrid CNN–RNN model '
-                  'deployed with TensorFlow Lite.',
-                ),
-                const SizedBox(height: 12),
-                _capabilitiesCard(),
-                const SizedBox(height: 24),
+              _sectionHeading(1, 'About DeepGuard', palette),
+              _body(
+                'DeepGuard is a mobile deepfake detection application designed '
+                'to analyze images and videos and classify submitted media as '
+                'either REAL or A.I. All inference runs locally on your device '
+                'using a Hybrid CNN–RNN model deployed with TensorFlow Lite.',
+                palette,
+              ),
+              _capabilitiesCard(palette),
+              const SizedBox(height: 24),
 
-                // ── 2. How It Works ──────────────────────────────────────────
-                _sectionHeading(2, 'How It Works'),
-                _body(
-                  'Each submission follows the same processing pipeline, from '
-                  'media input to the final result.',
-                ),
-                const SizedBox(height: 12),
-                _pipelineCard(),
-                const SizedBox(height: 24),
+              _sectionHeading(2, 'Detection Architecture', palette),
+              _body(
+                'Each submission passes through a structured on-device pipeline '
+                'from input validation to authenticity classification.',
+                palette,
+              ),
+              _pipelineCard(palette),
+              const SizedBox(height: 24),
 
-                // ── 3. Detection ─────────────────────────────────────────────
-                _sectionHeading(3, 'Detection'),
-                _detectionCard(),
-                const SizedBox(height: 24),
+              _sectionHeading(3, 'Classification & Model Confidence', palette),
+              _detectionCard(palette),
+              const SizedBox(height: 24),
 
-                // ── 4. Digital Provenance ────────────────────────────────────
-                _sectionHeading(4, 'Digital Provenance'),
-                _provenanceCard(),
-                const SizedBox(height: 24),
+              _sectionHeading(4, 'Digital Provenance', palette),
+              _provenanceCard(palette),
+              const SizedBox(height: 24),
 
-                // ── 5. Technology ────────────────────────────────────────────
-                _sectionHeading(5, 'Technology'),
-                _technologyCard(),
-                const SizedBox(height: 24),
+              _sectionHeading(5, 'Core Technologies', palette),
+              _technologyCard(palette),
+              const SizedBox(height: 24),
 
-                // ── 6. Disclaimer ────────────────────────────────────────────
-                _sectionHeading(6, 'Disclaimer'),
-                _disclaimerCard(),
-                const SizedBox(height: 24),
-                Center(
-                  child: Text(
-                    'DeepGuard v$kDeepGuardVersion',
-                    // Solid textMuted. Half-alpha on the old muted grey put the
-                    // version line itself at about 1.7:1.
-                    style: TextStyle(
-                      color: DeepGuardColors.textMuted,
-                      fontSize: 11,
-                      letterSpacing: 1,
-                    ),
+              _sectionHeading(6, 'Disclaimer', palette),
+              _disclaimerCard(palette),
+              const SizedBox(height: 20),
+
+              OutlinedButton.icon(
+                onPressed: () => _replayWalkthrough(context),
+                icon: const Icon(Icons.menu_book_outlined, size: 19),
+                label: const Text('Replay App Walkthrough'),
+              ),
+              const SizedBox(height: 20),
+
+              Center(
+                child: Text(
+                  'DeepGuard v$kDeepGuardVersion',
+                  style: TextStyle(
+                    color: palette.textMuted,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-                const SizedBox(height: 20),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  // ── Header ──────────────────────────────────────────────────────────────
-  Widget _header() {
+  Widget _header(BuildContext context, DeepGuardPalette palette) {
     return GlassCard(
       padding: const EdgeInsets.all(24),
-      gradient: const [DeepGuardColors.surfaceCard, DeepGuardColors.surfaceDark],
       child: Column(
         children: [
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const LinearGradient(colors: DeepGuardColors.primaryGradient),
-              boxShadow: [
-                BoxShadow(
-                  color: DeepGuardColors.primary.withValues(alpha: 0.3),
-                  blurRadius: 20,
-                  spreadRadius: 3,
+          ExcludeSemantics(
+            child: Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: palette.accent, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: palette.brandNavy.withValues(alpha: 0.16),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Image.asset(
+                  'assets/images/deepguard_logo.png',
+                  fit: BoxFit.cover,
                 ),
-              ],
-            ),
-            child: Icon(Icons.visibility,
-                // Dark ink over the cyan→violet gradient: white measures
-                // 1.88:1 at the cyan end, under even the 3:1 non-text floor.
-                color: DeepGuardContrast.inkOnAll(
-                    DeepGuardColors.primaryGradient),
-                size: 28),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            'DeepGuard',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: DeepGuardColors.textPrimary,
-              letterSpacing: 1.5,
+              ),
             ),
           ),
-          const SizedBox(height: 4),
-          const Text(
+          const SizedBox(height: 14),
+          Semantics(
+            header: true,
+            child: Text(
+              'DeepGuard',
+              style: TextStyle(
+                fontSize: 25,
+                fontWeight: FontWeight.w800,
+                color: palette.textPrimary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
             'A Hybrid CNN–RNN for Media Deepfake Detection',
-            style: TextStyle(color: DeepGuardColors.primary, fontSize: 12, letterSpacing: 1.5),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: palette.primaryText,
+              fontSize: 14.5,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
     );
   }
 
-  // ── 1. Capabilities ───────────────────────────────────────────────────────
-  Widget _capabilitiesCard() {
+  Widget _capabilitiesCard(DeepGuardPalette palette) {
     const caps = <(IconData, String)>[
-      (Icons.photo_camera_outlined, 'Capture image'),
-      (Icons.videocam_outlined, 'Capture video'),
+      (Icons.photo_camera_outlined, 'Capture photo'),
+      (Icons.videocam_outlined, 'Record video'),
       (Icons.image_outlined, 'Upload image'),
       (Icons.movie_outlined, 'Upload video'),
-      (Icons.analytics_outlined, 'Deepfake analysis'),
-      (Icons.fact_check_outlined, 'View result'),
-      (Icons.speed_outlined, 'Prediction confidence'),
-      (Icons.inventory_2_outlined, 'Provenance info'),
-      (Icons.travel_explore_outlined, 'Trace source'),
-      (Icons.history_outlined, 'Analysis history'),
+      (Icons.face_retouching_natural, 'Face framing'),
+      (Icons.fact_check_outlined, 'REAL / A.I. verdict'),
+      (Icons.insights_outlined, 'Model confidence'),
+      (Icons.fingerprint_rounded, 'Provenance check'),
+      (Icons.history_outlined, 'Saved history'),
     ];
     return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _cardTitle('What you can do'),
-          const SizedBox(height: 14),
+          _cardTitle('Key Capabilities', palette),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (final c in caps) _capabilityChip(c.$1, c.$2),
+              for (final c in caps) _capabilityChip(c.$1, c.$2, palette),
             ],
           ),
         ],
@@ -187,26 +188,33 @@ class AboutScreen extends StatelessWidget {
     );
   }
 
-  Widget _capabilityChip(IconData icon, String label) {
+  Widget _capabilityChip(
+    IconData icon,
+    String label,
+    DeepGuardPalette palette,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
-        color: DeepGuardColors.primary.withValues(alpha: 0.06),
-        border: Border.all(
-          color: DeepGuardColors.primary.withValues(alpha: 0.25),
-        ),
+        color: palette.processingContainer,
+        border: Border.all(color: palette.primary.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 15, color: DeepGuardColors.primary),
+          ExcludeSemantics(
+            child: Icon(icon, size: 16, color: palette.primaryText),
+          ),
           const SizedBox(width: 6),
-          Text(
-            label,
-            style: const TextStyle(
-              color: DeepGuardColors.textSecondary,
-              fontSize: 11.5,
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],
@@ -214,58 +222,63 @@ class AboutScreen extends StatelessWidget {
     );
   }
 
-  // ── 2. How It Works pipeline ──────────────────────────────────────────────
-  Widget _pipelineCard() {
+  Widget _pipelineCard(DeepGuardPalette palette) {
     const stages = [
-      'Media Input',
-      'Validation & Confirmation',
-      'Preprocessing',
-      'Hybrid CNN–RNN',
+      'Media Selection & Validation',
+      'Preprocessing & Face Framing (Image) / 10-Frame Sampling (Video)',
+      'EfficientNetB0 Spatial Feature Extraction',
+      'Hybrid CNN–RNN / LSTM Sequence Modeling',
       'Parallel Fusion',
       'Neuro-Symbolic Reasoning',
-      'Classification',
-      'Result Display',
+      'REAL / A.I. Classification & Result Presentation',
     ];
     return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           for (int i = 0; i < stages.length; i++) ...[
-            _pipelineStage(stages[i], i),
-            if (i != stages.length - 1) _pipelineArrow(),
+            _pipelineStage(stages[i], i, palette),
+            if (i != stages.length - 1)
+              ExcludeSemantics(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Icon(
+                    Icons.arrow_downward_rounded,
+                    color: palette.textMuted,
+                    size: 18,
+                  ),
+                ),
+              ),
           ],
         ],
       ),
     );
   }
 
-  Widget _pipelineStage(String label, int index) {
+  Widget _pipelineStage(String label, int index, DeepGuardPalette palette) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
-        color: DeepGuardColors.surfaceLight.withValues(alpha: 0.5),
-        border: Border.all(
-          color: DeepGuardColors.primary.withValues(alpha: 0.3),
-        ),
+        color: palette.backgroundSecondary,
+        border: Border.all(color: palette.border),
       ),
       child: Row(
         children: [
           Container(
-            width: 22,
-            height: 22,
+            width: 26,
+            height: 26,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: DeepGuardColors.primary.withValues(alpha: 0.15),
+              color: palette.processingContainer,
             ),
             child: Text(
               '${index + 1}',
-              style: const TextStyle(
-                color: DeepGuardColors.primary,
-                fontSize: 11,
+              style: TextStyle(
+                color: palette.primaryText,
+                fontSize: 13,
                 fontWeight: FontWeight.w800,
-                fontFamily: 'monospace',
               ),
             ),
           ),
@@ -273,9 +286,9 @@ class AboutScreen extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
-                color: DeepGuardColors.textPrimary,
-                fontSize: 13,
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 14.5,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -285,102 +298,108 @@ class AboutScreen extends StatelessWidget {
     );
   }
 
-  Widget _pipelineArrow() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 12),
-      child: Icon(
-        Icons.arrow_drop_down,
-        color: DeepGuardColors.textMuted,
-        size: 22,
-      ),
-    );
-  }
-
-  // ── 3. Detection ──────────────────────────────────────────────────────────
-  Widget _detectionCard() {
+  Widget _detectionCard(DeepGuardPalette palette) {
     return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _cardTitle('Classification'),
+          _cardTitle('Understanding Results', palette),
           const SizedBox(height: 10),
           _body(
-            'DeepGuard classifies supported image and video media as either '
-            'Authentic or Manipulated and reports the corresponding prediction '
-            'confidence. Prediction confidence is the model\'s probability for '
-            'its prediction on that individual file — it is not the overall '
-            'accuracy of the system.',
+            'DeepGuard classifies supported media into internal model classes '
+            '(Real / Fake) and presents clear user-facing verdicts as REAL or '
+            'A.I. alongside Model Confidence. Model Confidence is the model\'s '
+            'probability for that single file and is distinct from dataset '
+            'benchmark evaluation metrics (84.82% Image · 71.67% Video) '
+            'documented in the research evaluation.',
+            palette,
             pad: false,
           ),
           const SizedBox(height: 12),
           _note(
             Icons.movie_filter_outlined,
-            'Video analysis uses extracted frames rather than continuous '
-            'live-stream detection.',
+            'Video detection samples 10 uniformly spaced frames across the clip rather than continuous live-stream video.',
+            palette,
           ),
           const SizedBox(height: 8),
           _note(
             Icons.label_outline_rounded,
-            'Model classes are Real / Fake; the app presents results as '
-            'Authentic / Manipulated.',
+            'Internal classes: 0 = Real (displayed as REAL) and 1 = Fake (displayed as A.I.).',
+            palette,
           ),
         ],
       ),
     );
   }
 
-  // ── 4. Digital Provenance ─────────────────────────────────────────────────
-  Widget _provenanceCard() {
+  Widget _provenanceCard(DeepGuardPalette palette) {
     return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _cardTitle('Supplementary provenance'),
+          _cardTitle('Supplementary Provenance', palette),
           const SizedBox(height: 10),
           _bullet(
             Icons.folder_open_rounded,
-            'DeepGuard may display metadata and filename information read '
-            'on-device from the local file.',
+            'Inspects local EXIF and file-header metadata directly on your device.',
+            palette,
           ),
           _bullet(
-            Icons.travel_explore_rounded,
-            'It can optionally perform online source tracing when the user '
-            'requests it.',
+            Icons.verified_user_outlined,
+            'Optionally checks C2PA Content Credentials when an internet connection is active.',
+            palette,
           ),
           _bullet(
             Icons.info_outline_rounded,
-            'Source tracing and C2PA/digital-provenance information are '
-            'supplementary and do NOT determine the Authentic / Manipulated '
-            'classification.',
+            'Provenance metadata is supplementary context only and never overrides the Hybrid CNN–RNN classification.',
+            palette,
           ),
         ],
       ),
     );
   }
 
-  // ── 5. Technology ─────────────────────────────────────────────────────────
-  Widget _technologyCard() {
+  Widget _technologyCard(DeepGuardPalette palette) {
     const techs = [
       'Flutter',
       'TensorFlow Lite',
       'EfficientNetB0',
-      'RNN/LSTM',
-      'Python',
-      'TensorFlow',
-      'Keras',
-      'OpenCV',
+      'LSTM / RNN',
+      'Parallel Fusion',
+      'Neuro-Symbolic Reasoning',
+      'ML Kit Face Detection',
+      'Python / TensorFlow / Keras',
     ];
     return GlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _cardTitle('Built with'),
-          const SizedBox(height: 14),
+          _cardTitle('Built With', palette),
+          const SizedBox(height: 12),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (final t in techs) _techChip(t),
+              for (final t in techs)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 13,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    color: palette.surfaceElevated,
+                    border: Border.all(color: palette.border),
+                  ),
+                  child: Text(
+                    t,
+                    style: TextStyle(
+                      color: palette.textPrimary,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
             ],
           ),
         ],
@@ -388,175 +407,165 @@ class AboutScreen extends StatelessWidget {
     );
   }
 
-  Widget _techChip(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        color: DeepGuardColors.secondary.withValues(alpha: 0.08),
-        border: Border.all(
-          color: DeepGuardColors.secondary.withValues(alpha: 0.3),
-        ),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: DeepGuardColors.textPrimary,
-          fontSize: 12.5,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  // ── 6. Disclaimer ─────────────────────────────────────────────────────────
-  Widget _disclaimerCard() {
+  Widget _disclaimerCard(DeepGuardPalette palette) {
     return GlassCard(
-      gradient: [
-        DeepGuardColors.warning.withValues(alpha: 0.05),
-        Colors.transparent,
-      ],
-      borderColor: DeepGuardColors.warning.withValues(alpha: 0.4),
+      backgroundColor: palette.warningContainer,
+      borderColor: palette.warning.withValues(alpha: 0.55),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(Icons.warning_amber_rounded,
-                  color: DeepGuardColors.warning, size: 18),
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(
+                  Icons.warning_amber_rounded,
+                  color: palette.warningText,
+                  size: 20,
+                ),
+              ),
               const SizedBox(width: 10),
-              const Text(
-                'Disclaimer',
-                style: TextStyle(
-                  color: DeepGuardColors.warning,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 14,
+              Expanded(
+                child: Text(
+                  'Responsible Use Disclaimer',
+                  style: TextStyle(
+                    color: palette.warningText,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15.5,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 10),
-          _body(
-            '\u201CDeepGuard provides AI-based detection results and prediction '
-            'confidence based on its trained model. Results should not be '
-            'interpreted as absolute proof of authenticity or manipulation, '
-            'particularly for media types or generation techniques not '
-            'represented in the model\'s training and evaluation data.\u201D',
-            pad: false,
-          ),
-          const SizedBox(height: 10),
-          _body(
-            'A high confidence score does not guarantee that a media is '
-            'authentic or manipulated. DeepGuard is not a web application or a '
-            'cloud-based detection service.',
-            pad: false,
+          Text(
+            'DeepGuard provides AI-assisted authenticity assessments and model '
+            'confidence based on its trained neural architecture. Results '
+            'should not be treated as definitive forensic proof, especially '
+            'for heavily compressed media or novel generation methods outside '
+            'the training distribution.',
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 14.5,
+              height: 1.5,
+            ),
           ),
         ],
       ),
     );
   }
 
-  // ── Small building blocks ──────────────────────────────────────────────────
-  Widget _sectionHeading(int n, String title) {
+  Widget _sectionHeading(int n, String title, DeepGuardPalette palette) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        children: [
-          Container(
-            width: 26,
-            height: 26,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              gradient: const LinearGradient(colors: DeepGuardColors.primaryGradient),
-            ),
-            child: Text(
-              '$n',
-              style: TextStyle(
-                // Same rule as the header emblem: dark ink, not white, so the
-                // step digit clears the floor on both gradient stops.
-                color: DeepGuardContrast.inkOnAll(
-                    DeepGuardColors.primaryGradient),
-                fontSize: 13,
-                fontWeight: FontWeight.w900,
-                fontFamily: 'monospace',
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Semantics(
+        header: true,
+        child: Row(
+          children: [
+            ExcludeSemantics(
+              child: Container(
+                width: 28,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  color: palette.primaryButton,
+                ),
+                child: Text(
+                  '$n',
+                  style: TextStyle(
+                    color: palette.onPrimaryButton,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(
-                color: DeepGuardColors.textPrimary,
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.3,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _cardTitle(String title) {
+  Widget _cardTitle(String title, DeepGuardPalette palette) {
     return Text(
       title,
-      style: const TextStyle(
-        color: DeepGuardColors.textPrimary,
-        fontSize: 15,
-        fontWeight: FontWeight.w600,
+      style: TextStyle(
+        color: palette.textPrimary,
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
       ),
     );
   }
 
-  Widget _body(String text, {bool pad = true}) => Padding(
+  Widget _body(String text, DeepGuardPalette palette, {bool pad = true}) =>
+      Padding(
         padding: EdgeInsets.only(bottom: pad ? 12 : 0),
         child: Text(
           text,
-          // Solid textSecondary — this is the About screen's main prose, and
-          // 0.85 alpha was shaving the margin off the AA floor.
           style: TextStyle(
-            color: DeepGuardColors.textSecondary,
-            fontSize: 13,
-            height: 1.6,
+            color: palette.textSecondary,
+            fontSize: 15,
+            height: 1.55,
           ),
         ),
       );
 
-  Widget _note(IconData icon, String text) => Row(
+  Widget _note(IconData icon, String text, DeepGuardPalette palette) => Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 16, color: DeepGuardColors.info),
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: ExcludeSemantics(
+              child: Icon(icon, size: 18, color: palette.primaryText),
+            ),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(
-                color: DeepGuardColors.textSecondary,
-                fontSize: 12,
-                height: 1.5,
+              style: TextStyle(
+                color: palette.textSecondary,
+                fontSize: 14,
+                height: 1.45,
               ),
             ),
           ),
         ],
       );
 
-  Widget _bullet(IconData icon, String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
+  Widget _bullet(IconData icon, String text, DeepGuardPalette palette) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: 10),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, size: 16, color: DeepGuardColors.primary),
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: ExcludeSemantics(
+                child: Icon(icon, size: 18, color: palette.primaryText),
+              ),
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 text,
-                style: const TextStyle(
-                  color: DeepGuardColors.textSecondary,
-                  fontSize: 12,
-                  height: 1.5,
+                style: TextStyle(
+                  color: palette.textSecondary,
+                  fontSize: 14,
+                  height: 1.45,
                 ),
               ),
             ),

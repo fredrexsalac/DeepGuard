@@ -8,40 +8,28 @@ import '../models/prediction_result.dart';
 import '../models/provenance_snapshot.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/confidence_gauge.dart';
+import '../widgets/deepguard_app_bar.dart';
 import '../widgets/framing_evidence_overlay.dart';
+import '../widgets/gradcam_heatmap_overlay.dart';
 import '../widgets/outcome_flag.dart';
 import '../services/media_provenance_service.dart';
 import '../services/profile_service.dart';
 
-/// DeepGuard Result Screen
+/// DeepGuard Result Screen (Phase 8 & WCAG 2.2 Level AA).
 ///
-/// Displays the final deepfake detection result using the application's
-/// user-facing terminology:
+/// Presents authenticity results using clear user-facing classifications:
+///   - `REAL` (internal class 0 = Real, `DetectionResult.authentic`)
+///   - `A.I.` (internal class 1 = Fake, `DetectionResult.manipulated`)
 ///
-///   Internal (model/dataset)   User-facing (this screen)
-///   ─────────────────────────────────────────────────────
-///   Real  (class 0)         →  AUTHENTIC
-///   Fake  (class 1)         →  MANIPULATED
-///
-/// The Prediction Confidence value is the actual probability output from
-/// the TFLite model for this ONE individual file — never hard-coded,
-/// randomly generated, or adjusted. It is a separate concept from the
-/// model's dataset-level test accuracy (Image 84.82% · Video 71.67%),
-/// which is an evaluation metric reported on the Home and About screens.
-///
-/// The provenance section at the bottom is auxiliary metadata only — it is
-/// not part of the detection pipeline and never overrides the classification.
+/// Every classification communicates status through readable text, a distinct
+/// icon, and contrast-validated theme colors — never color alone.
+/// Confidence is labeled strictly as **Model Confidence** (never accuracy).
 class ResultScreen extends StatelessWidget {
   final PredictionResult result;
   final String filePath;
   final VoidCallback onAnalyzeAnother;
   final VoidCallback onGoHome;
   final bool isHistory;
-
-  /// For history records: the provenance + source-trace snapshot captured when
-  /// the media was first analyzed. When present, the provenance section replays
-  /// it OFFLINE (like a screenshot) instead of re-running any trace. Null for a
-  /// fresh/live analysis.
   final ProvenanceSnapshot? historyProvenance;
 
   const ResultScreen({
@@ -54,32 +42,22 @@ class ResultScreen extends StatelessWidget {
     this.historyProvenance,
   });
 
-  // ── Derived display values ─────────────────────────────────────────────────
-
-  /// User-facing display label.
-  /// DetectionResult.authentic  → "AUTHENTIC"
-  /// DetectionResult.manipulated → "MANIPULATED"
-  /// (null / error)              → "ERROR"
+  /// Primary user-facing classification label: REAL or A.I.
   String get _displayLabel {
     if (result.result == null) return 'ERROR';
-    return result.result == DetectionResult.authentic
-        ? 'AUTHENTIC'
-        : 'MANIPULATED';
+    return result.result == DetectionResult.authentic ? 'REAL' : 'A.I.';
   }
 
-  /// Internal class name (model/dataset terminology — NOT shown as primary UI).
+  /// Internal model/dataset class preserved unchanged (Real / Fake).
   String get _internalClass {
     if (result.result == null) return 'Unknown';
     return result.result == DetectionResult.authentic ? 'Real' : 'Fake';
   }
 
   bool get _isAuthentic => result.result == DetectionResult.authentic;
-  bool get _isError     => result.status == PredictionStatus.error;
-  bool get _isImage     => result.mediaType == MediaType.image;
+  bool get _isError => result.status == PredictionStatus.error;
+  bool get _isImage => result.mediaType == MediaType.image;
 
-  /// The verdict in the same vocabulary a history record stores, so the
-  /// provenance cross-check below and the saved record speak one language.
-  /// Null for an error verdict, which has nothing to check.
   String? get _verdictKey {
     if (result.result == null) return null;
     return _isAuthentic ? 'authentic' : 'manipulated';
@@ -87,479 +65,62 @@ class ResultScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = DeepGuardPalette.of(context);
     final file = File(filePath);
+    final verdictColor = result.resultColorFor(palette);
+    final verdictTextColor = result.resultTextColorFor(palette);
+    final verdictContainer = result.resultContainerFor(palette);
 
     return PopScope(
       canPop: true,
       onPopInvokedWithResult: (_, __) {},
       child: Scaffold(
-        extendBodyBehindAppBar: true,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          centerTitle: true,
+        backgroundColor: palette.backgroundSecondary,
+        appBar: DeepGuardAppBar(
+          title: isHistory ? 'Saved Analysis' : 'Analysis Result',
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new,
-                color: DeepGuardColors.primary, size: 20),
-            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.arrow_back_rounded),
             tooltip: 'Back',
-          ),
-          title: Text(
-            isHistory ? 'History Record' : 'Analysis Complete',
-            style: const TextStyle(
-              color: DeepGuardColors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1,
-            ),
+            onPressed: () => Navigator.of(context).pop(),
           ),
           actions: [
             IconButton(
-              icon: const Icon(Icons.home_outlined,
-                  color: DeepGuardColors.primary),
+              icon: const Icon(Icons.home_outlined),
+              tooltip: 'Return to Home',
               onPressed: onGoHome,
-              tooltip: 'Home',
             ),
           ],
         ),
-        body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: DeepGuardColors.backgroundGradient,
-            ),
-          ),
-          child: SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // ── Error state ─────────────────────────────────────────────
+                if (_isError) ...[
+                  _ErrorCard(message: result.errorMessage, palette: palette),
+                  const SizedBox(height: 18),
+                ],
 
-                  // ── Error state ─────────────────────────────────────────
-                  if (_isError) ...[
-                    _ErrorCard(message: result.errorMessage),
-                    const SizedBox(height: 24),
-                  ],
-
-                  // ── Low confidence warning ───────────────────────────────
-                  if (!_isError && !result.isHighConfidence) ...[
-                    GlassCard(
-                      padding: const EdgeInsets.all(14),
-                      gradient: [
-                        DeepGuardColors.warning.withValues(alpha: 0.10),
-                        Colors.transparent
-                      ],
-                      child: Row(children: [
-                        const Icon(Icons.warning_amber_rounded,
-                            color: DeepGuardColors.warning, size: 20),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Low Confidence '
-                                '(${result.confidencePercentage.toStringAsFixed(2)}%)',
-                                style: const TextStyle(
-                                  color: DeepGuardColors.warning,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              const Text(
-                                'Results below 70% may be less reliable. '
-                                'Consider testing with a higher-quality file.',
-                                style: TextStyle(
-                                  color: DeepGuardColors.textMuted,
-                                  fontSize: 11,
-                                  height: 1.4,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ]),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-
-                  // ── Primary result card ──────────────────────────────────
-                  if (!_isError) ...[
-                    GlassCard(
-                      padding: const EdgeInsets.all(28),
-                      glow: true,
-                      glowColor: result.resultColor,
-                      child: Column(
-                        children: [
-                          // Confidence gauge
-                          ConfidenceGauge(
-                            confidence: result.confidence,
-                            size: 160,
-                            color: result.resultColor,
-                          ),
-                          const SizedBox(height: 24),
-
-                          // Result icon
-                          Container(
-                            width: 60,
-                            height: 60,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: result.resultColor.withValues(alpha: 0.15),
-                              border: Border.all(
-                                color: result.resultColor.withValues(alpha: 0.45),
-                                width: 2,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: result.resultColor.withValues(alpha: 0.25),
-                                  blurRadius: 18,
-                                ),
-                              ],
-                            ),
-                            child: Icon(
-                              _isAuthentic
-                                  ? Icons.verified
-                                  : Icons.warning_amber_rounded,
-                              color: result.resultColor,
-                              size: 30,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-
-                          // ── USER-FACING LABEL: AUTHENTIC or MANIPULATED ──
-                          Text(
-                            _displayLabel,
-                            style: TextStyle(
-                              fontSize: 28,
-                              fontWeight: FontWeight.w900,
-                              // resultTextColor, not resultColor: at 28px this
-                              // is large text and `fake`'s 4.04:1 on a card
-                              // would clear the 3:1 large-text bar, but this is
-                              // the single most-read string in the app and the
-                              // red is the one token that drops below 4.5:1.
-                              color: result.resultTextColor,
-                              letterSpacing: 4,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-
-                          // Sub-label
-                          Text(
-                            _isAuthentic
-                                ? 'No signs of manipulation detected'
-                                : 'AI manipulation patterns detected',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              // Solid textSecondary. The 0.85 alpha looked
-                              // harmless and measured 4.49:1 on a card — under
-                              // the floor, on the surface this card sits on.
-                              color: DeepGuardColors.textSecondary,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-
-                          // Internal class badge (small, informational)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 5),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                  color: result.resultColor.withValues(alpha: 0.30)),
-                              color: result.resultColor.withValues(alpha: 0.08),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  'Model class: ',
-                                  style: TextStyle(
-                                    color: DeepGuardColors.textMuted,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                                Text(
-                                  _internalClass,
-                                  style: TextStyle(
-                                    color: result.resultTextColor,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    fontFamily: 'monospace',
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                // ── Low model confidence advisory ───────────────────────────
+                if (!_isError && !result.isHighConfidence) ...[
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: palette.warningContainer,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: palette.warning.withValues(alpha: 0.6),
                       ),
                     ),
-                    const SizedBox(height: 16),
-
-                    // ── Detail row ─────────────────────────────────────────
-                    Row(children: [
-                      // Confidence
-                      Expanded(
-                        child: GlassCard(
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 16, horizontal: 12),
-                          child: Column(children: [
-                            Icon(Icons.analytics_outlined,
-                                color: DeepGuardColors.primary.withValues(alpha: 0.7),
-                                size: 22),
-                            const SizedBox(height: 8),
-                            const Text('PREDICTION\nCONFIDENCE',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: DeepGuardColors.textMuted,
-                                  fontSize: 11,
-                                  letterSpacing: 1,
-                                  height: 1.35,
-                                )),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${result.confidencePercentage.toStringAsFixed(2)}%',
-                              style: TextStyle(
-                                color: result.resultTextColor,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 17,
-                              ),
-                            ),
-                          ]),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-
-                      // Media type
-                      Expanded(
-                        child: GlassCard(
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 16, horizontal: 12),
-                          child: Column(children: [
-                            Icon(
-                              _isImage
-                                  ? Icons.image_outlined
-                                  : Icons.videocam_outlined,
-                              color:
-                                  DeepGuardColors.secondary.withValues(alpha: 0.7),
-                              size: 22,
-                            ),
-                            const SizedBox(height: 8),
-                            const Text('MEDIA TYPE',
-                                style: TextStyle(
-                                  color: DeepGuardColors.textMuted,
-                                  fontSize: 11,
-                                  letterSpacing: 1.5,
-                                )),
-                            const SizedBox(height: 4),
-                            Text(
-                              _isImage ? 'Image' : 'Video',
-                              style: const TextStyle(
-                                color: DeepGuardColors.primary,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ]),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-
-                      // Result (internal)
-                      Expanded(
-                        child: GlassCard(
-                          padding: const EdgeInsets.symmetric(
-                              vertical: 16, horizontal: 12),
-                          child: Column(children: [
-                            Icon(result.resultIcon,
-                                color: result.resultColor.withValues(alpha: 0.8),
-                                size: 22),
-                            const SizedBox(height: 8),
-                            const Text('CLASS',
-                                style: TextStyle(
-                                  color: DeepGuardColors.textMuted,
-                                  fontSize: 11,
-                                  letterSpacing: 1.5,
-                                )),
-                            const SizedBox(height: 4),
-                            Text(
-                              _internalClass,
-                              style: TextStyle(
-                                color: result.resultTextColor,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                fontFamily: 'monospace',
-                              ),
-                            ),
-                          ]),
-                        ),
-                      ),
-                    ]),
-                  ],
-
-                  // ── Media preview ──────────────────────────────────────────
-                  GlassCard(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'SUBMITTED MEDIA',
-                          style: TextStyle(
-                            color: DeepGuardColors.textMuted,
-                            fontSize: 11,
-                            letterSpacing: 2,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: SizedBox(
-                            height: 180,
-                            width: double.infinity,
-                            child: file.existsSync()
-                                ? (_isImage
-                                    ? FramingEvidenceOverlay(
-                                        framing: result.framing,
-                                        child: Image.file(file,
-                                            fit: BoxFit.contain),
-                                      )
-                                    : _InlineVideoPlayer(filePath: filePath))
-                                : Container(
-                                    color: DeepGuardColors.surfaceDark,
-                                    padding: const EdgeInsets.all(16),
-                                    child: Center(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.broken_image,
-                                              color: DeepGuardColors.textMuted,
-                                              size: 36),
-                                          const SizedBox(height: 10),
-                                          Text(
-                                            // A history record's own data is intact; only the
-                                            // media file is missing, so say which of the two this
-                                            // screen still shows.
-                                            isHistory
-                                                ? 'Media file not on this device.\n'
-                                                    'The report below is replayed from your saved record.'
-                                                : 'The media file could not be read.',
-                                            textAlign: TextAlign.center,
-                                            style: const TextStyle(
-                                              color: DeepGuardColors.textMuted,
-                                              fontSize: 11,
-                                              height: 1.4,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                          ),
-                        ),
-                        // ── Framing evidence ────────────────────────────────
-                        // Never separate the legend from the overlay: the boxes
-                        // alone are exactly the ambiguity that would let a face
-                        // rectangle be read as a manipulation location.
-                        FramingEvidenceLegend(
-                          framing: result.framing,
-                          mutedColor: DeepGuardColors.textMuted,
-                        ),
-                        // ── Provenance cross-check ──────────────────────────
-                        // The disagreement, if there is one, between the
-                        // verdict and what this file's own metadata says. It
-                        // sits here, under the media it describes, and never
-                        // near the verdict it is scoring.
-                        OutcomeFlagBanner(
-                          entryId: result.id,
-                          detectionResult: _verdictKey,
-                          snapshot: historyProvenance,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // ── Digital Provenance & Origin Attribution ───────────────
-                  _ProvenanceSection(
-                    filePath: filePath,
-                    isHistory: isHistory,
-                    isVideo: !_isImage,
-                    entryId: result.id,
-                    snapshot: historyProvenance,
-                  ),
-                  const SizedBox(height: 20),
-
-                  // ── Action buttons ─────────────────────────────────────────
-                  Row(children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: onGoHome,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: DeepGuardColors.textMuted,
-                          // A control whose only edge was this line, so it has
-                          // to clear the 3:1 non-text floor. At alpha 0.3 over
-                          // the old muted grey it was nowhere near it.
-                          side: const BorderSide(
-                              color: DeepGuardColors.textMuted),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10)),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.home_outlined, size: 16),
-                            SizedBox(width: 6),
-                            Text('Home',
-                                style: TextStyle(letterSpacing: 0.5)),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: _GradientButton(
-                        label: isHistory ? 'Back to History' : 'Analyze Another',
-                        icon: isHistory ? Icons.history : Icons.upload_file,
-                        onTap: onAnalyzeAnother,
-                      ),
-                    ),
-                  ]),
-                  const SizedBox(height: 20),
-
-                  // ── Info / disclaimer box ──────────────────────────────────
-                  GlassCard(
-                    gradient: _isAuthentic && !_isError
-                        ? [
-                            DeepGuardColors.authentic.withValues(alpha: 0.05),
-                            Colors.transparent
-                          ]
-                        : _isError
-                            ? null
-                            : [
-                                DeepGuardColors.fake.withValues(alpha: 0.05),
-                                Colors.transparent
-                              ],
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Icon(
-                          _isError
-                              ? Icons.error_outline
-                              : (_isAuthentic
-                                  ? Icons.info_outline
-                                  : Icons.shield_outlined),
-                          color: _isError
-                              ? DeepGuardColors.fake
-                              : result.resultColor,
-                          size: 20,
+                          Icons.warning_amber_rounded,
+                          color: palette.warningText,
+                          size: 22,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -567,36 +128,21 @@ class ResultScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                _isError
-                                    ? 'Analysis could not be completed'
-                                    : (_isAuthentic
-                                        ? 'This media appears to be authentic'
-                                        : 'This media shows signs of manipulation'),
+                                'Low Model Confidence '
+                                '(${result.confidencePercentage.toStringAsFixed(1)}%)',
                                 style: TextStyle(
-                                  color: _isError
-                                      ? DeepGuardColors.fakeText
-                                      : result.resultTextColor,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
+                                  color: palette.warningText,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              const SizedBox(height: 6),
+                              const SizedBox(height: 3),
                               Text(
-                                _isError
-                                    ? 'Please verify the file is a supported '
-                                        'image or video format and try again.'
-                                    : (_isAuthentic
-                                        ? 'The DeepGuard AI model detected no '
-                                            'signs of manipulation. No detection '
-                                            'system is 100% accurate — use this '
-                                            'result as guidance, not definitive proof.'
-                                        : 'The DeepGuard AI model detected patterns '
-                                            'consistent with deepfake generation. '
-                                            'Further verification is recommended '
-                                            'before sharing or acting on this content.'),
-                                style: const TextStyle(
-                                  color: DeepGuardColors.textMuted,
-                                  fontSize: 12,
+                                'Scores below 70% indicate a borderline prediction. '
+                                'Consider testing a clearer, higher-resolution sample.',
+                                style: TextStyle(
+                                  color: palette.textPrimary,
+                                  fontSize: 13.5,
                                   height: 1.45,
                                 ),
                               ),
@@ -606,8 +152,428 @@ class ResultScreen extends StatelessWidget {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 16),
                 ],
-              ),
+
+                // ── Primary REAL / A.I. Verdict Card ────────────────────────
+                if (!_isError) ...[
+                  GlassCard(
+                    padding: const EdgeInsets.all(24),
+                    glow: true,
+                    glowColor: verdictColor,
+                    borderColor: verdictColor.withValues(alpha: 0.65),
+                    child: Column(
+                      children: [
+                        // Accessible classification status pill (Icon + Text + Color)
+                        Semantics(
+                          header: true,
+                          label: _isAuthentic
+                              ? 'Classification Result: REAL. Media shows no detected AI manipulation patterns.'
+                              : 'Classification Result: A.I. Media shows patterns consistent with AI generation or manipulation.',
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: verdictContainer,
+                              borderRadius: BorderRadius.circular(30),
+                              border: Border.all(
+                                color: verdictColor.withValues(alpha: 0.65),
+                                width: 1.5,
+                              ),
+                            ),
+                            child: ExcludeSemantics(
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _isAuthentic
+                                        ? Icons.verified_rounded
+                                        : Icons.warning_amber_rounded,
+                                    color: verdictTextColor,
+                                    size: 26,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    _displayLabel,
+                                    style: TextStyle(
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.w800,
+                                      color: verdictTextColor,
+                                      letterSpacing: 1.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Short explanation
+                        Text(
+                          _isAuthentic
+                              ? 'No signs of AI manipulation were detected in this ${_isImage ? "image" : "video"}.'
+                              : 'Patterns consistent with AI generation or deepfake manipulation were detected in this ${_isImage ? "image" : "video"}.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: palette.textSecondary,
+                            fontSize: 15.5,
+                            height: 1.45,
+                          ),
+                        ),
+                        const SizedBox(height: 22),
+
+                        // Model Confidence Gauge
+                        ConfidenceGauge(
+                          confidence: result.confidence,
+                          size: 164,
+                          color: verdictColor,
+                          textColor: verdictTextColor,
+                        ),
+                        const SizedBox(height: 12),
+
+                        Text(
+                          'Model confidence reflects certainty for this individual file — not overall experimental model accuracy.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: palette.textMuted,
+                            fontSize: 13,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── Responsive Summary Metrics ────────────────────────────
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final textScale =
+                          MediaQuery.textScalerOf(context).scale(1.0);
+                      final stackMetrics =
+                          constraints.maxWidth < 300 || textScale > 1.2;
+
+                      final confidenceTile = _MetricSummaryTile(
+                        icon: Icons.insights_rounded,
+                        label: 'Model Confidence',
+                        value:
+                            '${result.confidencePercentage.toStringAsFixed(1)}%',
+                        valueColor: verdictTextColor,
+                        palette: palette,
+                      );
+                      final mediaTile = _MetricSummaryTile(
+                        icon: _isImage
+                            ? Icons.image_outlined
+                            : Icons.videocam_outlined,
+                        label: 'Media Type',
+                        value: _isImage ? 'Image' : 'Video',
+                        valueColor: palette.primaryText,
+                        palette: palette,
+                      );
+                      final classTile = _MetricSummaryTile(
+                        icon: result.resultIcon,
+                        label: 'Model Class',
+                        value: '$_displayLabel ($_internalClass)',
+                        valueColor: verdictTextColor,
+                        palette: palette,
+                      );
+
+                      if (stackMetrics) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            confidenceTile,
+                            const SizedBox(height: 8),
+                            mediaTile,
+                            const SizedBox(height: 8),
+                            classTile,
+                          ],
+                        );
+                      }
+                      return IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(child: confidenceTile),
+                            const SizedBox(width: 8),
+                            Expanded(child: mediaTile),
+                            const SizedBox(width: 8),
+                            Expanded(child: classTile),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
+                // ── Selected Media Preview & Framing Evidence ───────────────
+                GlassCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Semantics(
+                            header: true,
+                            child: Text(
+                              isHistory
+                                  ? 'Retained Media Evidence'
+                                  : 'Analyzed Media Preview',
+                              style: TextStyle(
+                                color: palette.textPrimary,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          if (isHistory && file.existsSync())
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: palette.processingContainer,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: palette.accent.withValues(alpha: 0.6),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.inventory_2_outlined,
+                                    size: 14,
+                                    color: palette.accentText,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    _isImage
+                                        ? 'IMAGE EVIDENCE'
+                                        : 'VIDEO EVIDENCE',
+                                    style: TextStyle(
+                                      color: palette.accentText,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.4,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          height: 200,
+                          width: double.infinity,
+                          color: palette.brandNavy,
+                          child: file.existsSync()
+                              ? (_isImage
+                                  ? Semantics(
+                                      image: true,
+                                      label:
+                                          'Analyzed image evidence sample with framing region indicator.',
+                                      child: FramingEvidenceOverlay(
+                                        framing: result.framing,
+                                        child: Image.file(
+                                          file,
+                                          fit: BoxFit.contain,
+                                        ),
+                                      ),
+                                    )
+                                  : _InlineVideoPlayer(filePath: filePath))
+                              : Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.broken_image_outlined,
+                                          color: Colors.white70,
+                                          size: 34,
+                                        ),
+                                        const SizedBox(height: 10),
+                                        Text(
+                                          isHistory
+                                              ? 'Media evidence is unavailable for this legacy record.\nRestore from a DeepGuard Evidence Archive (.zip) to include image and video previews.'
+                                              : 'The media file could not be displayed.',
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 13.5,
+                                            height: 1.45,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                        ),
+                      ),
+                      if (isHistory && file.existsSync()) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          'Preserved ${_isImage ? "image" : "video"} evidence — '
+                          'retained locally for offline review and bundled inside '
+                          'exported DeepGuard ZIP archives.',
+                          style: TextStyle(
+                            color: palette.textSecondary,
+                            fontSize: 13,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                      FramingEvidenceLegend(
+                        framing: result.framing,
+                        mutedColor: palette.textMuted,
+                      ),
+                      OutcomeFlagBanner(
+                        entryId: result.id,
+                        detectionResult: _verdictKey,
+                        snapshot: historyProvenance,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // ── Real Model-Prescribed Grad-CAM & Key Video Frames ─────────
+                if (!_isError && result.gradCam != null) ...[
+                  GradCamSection(
+                    gradCam: result.gradCam!,
+                    isVideo: !_isImage,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
+                // ── Digital Provenance & Origin Attribution ─────────────────
+                _ProvenanceSection(
+                  filePath: filePath,
+                  isHistory: isHistory,
+                  isVideo: !_isImage,
+                  entryId: result.id,
+                  snapshot: historyProvenance,
+                ),
+                const SizedBox(height: 20),
+
+                // ── Primary Navigation Actions ──────────────────────────────
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final textScale =
+                        MediaQuery.textScalerOf(context).scale(1.0);
+                    final stackButtons =
+                        constraints.maxWidth < 340 || textScale > 1.3;
+
+                    final homeBtn = OutlinedButton.icon(
+                      onPressed: onGoHome,
+                      icon: const Icon(Icons.home_outlined, size: 19),
+                      label: const Text('Return Home'),
+                    );
+                    final nextBtn = FilledButton.icon(
+                      onPressed: onAnalyzeAnother,
+                      icon: Icon(
+                        isHistory
+                            ? Icons.history_rounded
+                            : Icons.add_photo_alternate_outlined,
+                        size: 20,
+                      ),
+                      label: Text(
+                        isHistory ? 'Back to History' : 'Analyze Another',
+                      ),
+                    );
+
+                    if (stackButtons) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          nextBtn,
+                          const SizedBox(height: 10),
+                          homeBtn,
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Expanded(child: homeBtn),
+                        const SizedBox(width: 12),
+                        Expanded(flex: 2, child: nextBtn),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 18),
+
+                // ── Guidance & Responsible Use Box ──────────────────────────
+                GlassCard(
+                  backgroundColor: _isError
+                      ? palette.errorContainer
+                      : verdictContainer,
+                  borderColor: _isError
+                      ? palette.error.withValues(alpha: 0.5)
+                      : verdictColor.withValues(alpha: 0.45),
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        _isError
+                            ? Icons.error_outline_rounded
+                            : Icons.info_outline_rounded,
+                        color: _isError ? palette.errorText : verdictTextColor,
+                        size: 21,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _isError
+                                  ? 'Analysis could not be completed'
+                                  : (_isAuthentic
+                                      ? 'Guidance for REAL classification'
+                                      : 'Guidance for A.I. classification'),
+                              style: TextStyle(
+                                color: _isError
+                                    ? palette.errorText
+                                    : verdictTextColor,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              _isError
+                                  ? 'Verify that the file is a valid, uncorrupted image or video and try again.'
+                                  : (_isAuthentic
+                                      ? 'DeepGuard found no indicators of synthetic manipulation. Automated detection is an assistive tool rather than absolute proof of origin.'
+                                      : 'DeepGuard identified visual or temporal patterns consistent with synthetic media. Verify the source independently before sharing or acting on this content.'),
+                              style: TextStyle(
+                                color: palette.textPrimary,
+                                fontSize: 14,
+                                height: 1.45,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -616,99 +582,104 @@ class ResultScreen extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Error card
-// ─────────────────────────────────────────────────────────────────────────────
-class _ErrorCard extends StatelessWidget {
-  final String? message;
-  const _ErrorCard({this.message});
+class _MetricSummaryTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color valueColor;
+  final DeepGuardPalette palette;
+
+  const _MetricSummaryTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.valueColor,
+    required this.palette,
+  });
 
   @override
   Widget build(BuildContext context) {
     return GlassCard(
-      glow: true,
-      glowColor: DeepGuardColors.fake,
-      gradient: [DeepGuardColors.fake.withValues(alpha: 0.08), Colors.transparent],
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Icon(Icons.error_outline, color: DeepGuardColors.fake, size: 24),
-        const SizedBox(width: 12),
-        Expanded(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+      child: Semantics(
+        label: '$label: $value',
+        child: ExcludeSemantics(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Analysis Failed',
-                // fakeText, not fake: this heading is painted on a card whose
-                // own gradient lifts the red it sits against.
+              Icon(icon, color: valueColor, size: 22),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: DeepGuardColors.fakeText,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
+                  color: palette.textSecondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 4),
               Text(
-                message ??
-                    'An unexpected error occurred during analysis. '
-                    'Please try again with a different file.',
-                style: const TextStyle(
-                  color: DeepGuardColors.textSecondary,
-                  fontSize: 12,
-                  height: 1.45,
+                value,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: valueColor,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
                 ),
               ),
             ],
           ),
         ),
-      ]),
+      ),
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Gradient action button
-// ─────────────────────────────────────────────────────────────────────────────
-class _GradientButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
+class _ErrorCard extends StatelessWidget {
+  final String? message;
+  final DeepGuardPalette palette;
 
-  const _GradientButton({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-  });
+  const _ErrorCard({this.message, required this.palette});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          gradient: const LinearGradient(
-              colors: DeepGuardColors.primaryGradient),
-          boxShadow: [
-            BoxShadow(
-              color: DeepGuardColors.primary.withValues(alpha: 0.35),
-              blurRadius: 14,
-              spreadRadius: 1,
-            ),
-          ],
-        ),
+    return Semantics(
+      liveRegion: true,
+      child: GlassCard(
+        backgroundColor: palette.errorContainer,
+        borderColor: palette.error.withValues(alpha: 0.65),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: Colors.white, size: 16),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
-                letterSpacing: 0.3,
+            Icon(
+              Icons.error_outline_rounded,
+              color: palette.errorText,
+              size: 24,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Analysis Could Not Complete',
+                    style: TextStyle(
+                      color: palette.errorText,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    message ??
+                        'An unexpected error occurred during analysis. Please try another supported image or video file.',
+                    style: TextStyle(
+                      color: palette.textPrimary,
+                      fontSize: 14,
+                      height: 1.45,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -718,14 +689,6 @@ class _GradientButton extends StatelessWidget {
   }
 }
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Digital Provenance & Source Attribution Section
-// ────────────────────────────────────────────────────────────────────────────────
-/// Self-contained, playable inline video preview for the result screen.
-/// Creates its own [VideoPlayerController], plays/pauses on tap, shows a
-/// scrubbing progress bar, and degrades to a placeholder if the file cannot
-/// be initialized. (The previous build used Image.file() on the video, which
-/// could never play.)
 class _InlineVideoPlayer extends StatefulWidget {
   final String filePath;
   const _InlineVideoPlayer({required this.filePath});
@@ -738,7 +701,6 @@ class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
   VideoPlayerController? _ctrl;
   bool _ready = false;
   bool _failed = false;
-  bool _showIcon = true;
 
   @override
   void initState() {
@@ -767,15 +729,11 @@ class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
   void _togglePlay() {
     final ctrl = _ctrl;
     if (ctrl == null || !ctrl.value.isInitialized) return;
-    setState(() {
-      if (ctrl.value.isPlaying) {
-        ctrl.pause();
-        _showIcon = true;
-      } else {
-        ctrl.play();
-        _showIcon = false;
-      }
-    });
+    if (ctrl.value.isPlaying) {
+      ctrl.pause();
+    } else {
+      ctrl.play();
+    }
   }
 
   @override
@@ -789,64 +747,72 @@ class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
   Widget build(BuildContext context) {
     final ctrl = _ctrl;
     if (_failed || ctrl == null || !_ready || !ctrl.value.isInitialized) {
-      return Container(
-        color: DeepGuardColors.surfaceDark,
-        child: const Center(
-          child: Icon(Icons.videocam_off,
-              color: DeepGuardColors.textMuted, size: 40),
+      return const ColoredBox(
+        color: Color(0xFF101C36),
+        child: Center(
+          child: Icon(Icons.videocam_off, color: Colors.white70, size: 38),
         ),
       );
     }
-    return GestureDetector(
-      onTap: _togglePlay,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Center(
-            child: AspectRatio(
-              aspectRatio: ctrl.value.aspectRatio,
-              child: VideoPlayer(ctrl),
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: VideoProgressIndicator(
-              ctrl,
-              allowScrubbing: true,
-              colors: VideoProgressColors(
-                playedColor: DeepGuardColors.primary,
-                bufferedColor:
-                    DeepGuardColors.primary.withValues(alpha: 0.25),
-                backgroundColor: Colors.white.withValues(alpha: 0.12),
-              ),
-              padding:
-                  const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-            ),
-          ),
-          if (!ctrl.value.isPlaying || _showIcon)
+    final isPlaying = ctrl.value.isPlaying;
+    return Semantics(
+      button: true,
+      label: isPlaying ? 'Pause analyzed video' : 'Play analyzed video',
+      child: GestureDetector(
+        onTap: _togglePlay,
+        behavior: HitTestBehavior.opaque,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
             Center(
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.black.withValues(alpha: 0.5),
-                  border: Border.all(
-                      color:
-                          DeepGuardColors.primary.withValues(alpha: 0.6),
-                      width: 1.5),
-                ),
-                child: Icon(
-                  ctrl.value.isPlaying
-                      ? Icons.pause_rounded
-                      : Icons.play_arrow_rounded,
-                  color: Colors.white,
-                  size: 32,
+              child: AspectRatio(
+                aspectRatio: ctrl.value.aspectRatio > 0
+                    ? ctrl.value.aspectRatio
+                    : 16 / 9,
+                child: VideoPlayer(ctrl),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: ExcludeSemantics(
+                child: VideoProgressIndicator(
+                  ctrl,
+                  allowScrubbing: true,
+                  colors: const VideoProgressColors(
+                    playedColor: Color(0xFF35C9E2),
+                    bufferedColor: Colors.white38,
+                    backgroundColor: Colors.white24,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 6,
+                    horizontal: 8,
+                  ),
                 ),
               ),
             ),
-        ],
+            if (!isPlaying)
+              Center(
+                child: ExcludeSemantics(
+                  child: Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.black.withValues(alpha: 0.65),
+                      border: Border.all(color: Colors.white70, width: 1.5),
+                    ),
+                    child: const Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 32,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -856,12 +822,7 @@ class _ProvenanceSection extends StatefulWidget {
   final String filePath;
   final bool isHistory;
   final bool isVideo;
-
-  /// History-entry id (== the analysis result id). Used to persist a provenance
-  /// snapshot after a LIVE source trace settles.
   final String? entryId;
-
-  /// Stored snapshot to replay offline for a history record. Null for live.
   final ProvenanceSnapshot? snapshot;
 
   const _ProvenanceSection({
@@ -877,24 +838,15 @@ class _ProvenanceSection extends StatefulWidget {
 }
 
 class _ProvenanceSectionState extends State<_ProvenanceSection> {
-  // Connectivity status — auto-trace source is strictly hidden when offline
   bool _hasInternet = false;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
 
-  // Auto-trace result — the online C2PA content-credentials check, loaded
-  // automatically on init when internet is present. (The Google Lens
-  // reverse-image similarity trace was removed and is no longer run.)
   TraceResult? _c2paResult;
   bool _c2paLoading = false;
 
-  // On-device metadata report (loaded once, reused for both UI + persistence)
   ProvenanceReport? _report;
   late Future<ProvenanceReport> _reportFuture;
-
-  // Guards one-time persistence of the snapshot for a live analysis
   bool _persisted = false;
-
-  // Legacy single-trace loading flag (kept for _runTrace bottom sheet flow)
   String? _loadingTrace;
 
   @override
@@ -902,26 +854,20 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
     super.initState();
     final snap = widget.snapshot;
     if (snap != null) {
-      // HISTORY REPLAY: render the frozen snapshot offline — like a screenshot.
-      // No network, no connectivity listener, no re-run, nothing to persist.
       _report = snap.toReport();
       _reportFuture = Future.value(_report);
       _c2paResult = snap.toC2paTrace();
-      _hasInternet = snap.hasAnyTrace; // reveal trace block only if it was captured
+      _hasInternet = snap.hasAnyTrace;
       _persisted = true;
     } else if (!widget.isHistory) {
-      // LIVE: offline metadata + online source trace, then persist a snapshot.
       _startReport();
       _checkInitialConnectivity();
       _listenToConnectivity();
     } else {
-      // LEGACY HISTORY (saved before snapshots existed): offline metadata only.
       _startReport();
     }
   }
 
-  /// Kicks off the one-time on-device metadata analysis and captures the result
-  /// in state so it can be reused for both rendering and persistence.
   void _startReport() {
     _reportFuture = MediaProvenanceService().analyzeFile(widget.filePath)
       ..then((r) {
@@ -931,43 +877,30 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
       });
   }
 
-  /// Saves the provenance/source-trace snapshot into the history record once,
-  /// after the live metadata report AND (online) traces have settled. Offline
-  /// live analyses persist with just the metadata. History replays never persist.
   void _maybePersist() {
     if (_persisted || widget.isHistory || widget.entryId == null) return;
     if (_report == null) return;
-    final settled =
-        !_hasInternet || (!_c2paLoading && _c2paResult != null);
+    final settled = !_hasInternet || (!_c2paLoading && _c2paResult != null);
     if (!settled) return;
     _persisted = true;
-    // The Google Lens reverse-image trace was removed; persist a null lens
-    // slot so the existing snapshot schema and history replay stay intact.
     final snap = ProvenanceSnapshot.from(_report!, null, _c2paResult);
     final svc = ProfileService();
     final profile = svc.activeProfile;
     if (profile == null) return;
-    // Persisting the settled snapshot is also what makes the provenance
-    // cross-check able to run: OutcomeFlagBanner listens for this write and
-    // re-derives the flag from the stored record. Nothing else is written here,
-    // so no verdict, confidence or model class can be altered by it.
     svc.updateHistoryProvenance(profile.id, widget.entryId!, snap);
   }
 
   @override
   void dispose() {
-    _connectivitySubscription?.cancel();
+    _connectivitySubscription?.cancel().catchError((_) {});
     super.dispose();
   }
 
-  /// Verifies active internet connectivity using network interfaces and a reachability probe.
   Future<bool> _checkInternetConnection() async {
     try {
       final results = await Connectivity().checkConnectivity();
       final hasInterface = results.any((r) => r != ConnectivityResult.none);
       if (!hasInterface) return false;
-
-      // Fast DNS reachability probe
       try {
         final lookup = await InternetAddress.lookup('example.com')
             .timeout(const Duration(milliseconds: 2500));
@@ -989,45 +922,37 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
   Future<void> _checkInitialConnectivity() async {
     final online = await _checkInternetConnection();
     if (!mounted) return;
-    setState(() {
-      _hasInternet = online;
-    });
-    if (online) {
-      _autoRunAllTraces();
-    }
+    setState(() => _hasInternet = online);
+    if (online) _autoRunAllTraces();
   }
 
   void _listenToConnectivity() {
-    _connectivitySubscription =
-        Connectivity().onConnectivityChanged.listen((results) async {
-      final hasInterface = results.any((r) => r != ConnectivityResult.none);
-      if (!hasInterface) {
-        if (mounted && _hasInternet) {
-          setState(() => _hasInternet = false);
-        }
-        return;
-      }
-      final online = await _checkInternetConnection();
-      if (!mounted) return;
-      if (online != _hasInternet) {
-        setState(() => _hasInternet = online);
-        if (online && _c2paResult == null) {
-          _autoRunAllTraces();
-        }
-      }
-    });
+    try {
+      _connectivitySubscription = Connectivity().onConnectivityChanged.listen(
+        (results) async {
+          final hasInterface =
+              results.any((r) => r != ConnectivityResult.none);
+          if (!hasInterface) {
+            if (mounted && _hasInternet) setState(() => _hasInternet = false);
+            return;
+          }
+          final online = await _checkInternetConnection();
+          if (!mounted) return;
+          if (online != _hasInternet) {
+            setState(() => _hasInternet = online);
+            if (online && _c2paResult == null) {
+              _autoRunAllTraces();
+            }
+          }
+        },
+        onError: (_) {},
+      );
+    } catch (_) {}
   }
 
-  /// Runs the online auto-trace when internet is confirmed. Only the C2PA
-  /// content-credentials check runs now — the Google Lens reverse-image
-  /// similarity trace was removed (its visually-similar web matches could be
-  /// misleading) and is no longer called or displayed. Auxiliary only; never
-  /// affects the Hybrid CNN-RNN verdict.
   Future<void> _autoRunAllTraces() async {
     if (!mounted) return;
-    setState(() {
-      _c2paLoading = true;
-    });
+    setState(() => _c2paLoading = true);
 
     final svc = MediaProvenanceService();
     final c2pa = await svc.traceOnC2PA(widget.filePath).catchError(
@@ -1042,20 +967,16 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
       _c2paResult = c2pa;
       _c2paLoading = false;
     });
-    // Source trace has settled — capture the snapshot into the history record.
     _maybePersist();
   }
 
-  /// Re-runs a single trace on demand and shows the bottom sheet.
   Future<void> _runTrace(
     String traceId,
     Future<TraceResult> Function() traceCall,
   ) async {
     final online = await _checkInternetConnection();
     if (!online) {
-      if (mounted) {
-        setState(() => _hasInternet = false);
-      }
+      if (mounted) setState(() => _hasInternet = false);
       return;
     }
     setState(() => _loadingTrace = traceId);
@@ -1066,165 +987,137 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
   }
 
   void _showTraceSheet(TraceResult result) {
-    // Neutral informational colours: a trace hit (found) is NOT a
-    // manipulation verdict, and a missing trace (not_found) is NOT an
-    // authenticity verdict. Classification comes only from the CNN-RNN model.
-    final statusColor = result.status == 'found'
-        ? DeepGuardColors.info
-        : result.status == 'not_found'
-            ? DeepGuardColors.textSecondary
-            : Colors.orangeAccent;
-    // Same status, but the variant that survives being read as text: `info`
-    // sits at 3.91:1 on a card, and this sheet's body is a card.
-    final statusTextColor = result.status == 'found'
-        ? DeepGuardColors.infoText
-        : result.status == 'not_found'
-            ? DeepGuardColors.textSecondary
-            : Colors.orangeAccent;
-    final statusIcon = result.status == 'found'
-        ? Icons.travel_explore_rounded
-        : result.status == 'not_found'
-            ? Icons.remove_circle_outline
-            : Icons.error_outline;
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.55,
-        minChildSize: 0.35,
-        maxChildSize: 0.85,
-        builder: (_, controller) => Container(
-          decoration: BoxDecoration(
-            color: DeepGuardColors.surfaceCard,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            border: Border(
-              top: BorderSide(
-                color: DeepGuardColors.primary.withAlpha(60),
-                width: 1,
-              ),
-            ),
-          ),
-          child: ListView(
-            controller: controller,
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-            children: [
-              // Drag handle
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: DeepGuardColors.textMuted.withAlpha(80),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              // Engine title
-              Row(
-                children: [
-                  Icon(Icons.travel_explore_rounded,
-                      color: DeepGuardColors.primary, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      result.engine.toUpperCase(),
-                      style: const TextStyle(
-                        color: DeepGuardColors.textMuted,
-                        fontSize: 11,
-                        letterSpacing: 2,
-                        fontFamily: 'monospace',
-                        fontWeight: FontWeight.w600,
+      showDragHandle: true,
+      builder: (sheetCtx) {
+        final palette = DeepGuardPalette.of(sheetCtx);
+        final statusTextColor = result.status == 'found'
+            ? palette.primaryText
+            : result.status == 'not_found'
+                ? palette.textSecondary
+                : palette.warningText;
+        final statusContainer = result.status == 'found'
+            ? palette.processingContainer
+            : result.status == 'not_found'
+                ? palette.surfaceElevated
+                : palette.warningContainer;
+        final statusIcon = result.status == 'found'
+            ? Icons.travel_explore_rounded
+            : result.status == 'not_found'
+                ? Icons.remove_circle_outline
+                : Icons.error_outline;
+
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Semantics(
+                  header: true,
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.travel_explore_rounded,
+                        color: palette.primaryText,
+                        size: 20,
                       ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              // Status badge
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: statusColor.withAlpha(25),
-                  borderRadius: BorderRadius.circular(10),
-                  border:
-                      Border.all(color: statusColor.withAlpha(80)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(statusIcon, color: statusColor, size: 18),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        result.summary,
-                        style: TextStyle(
-                          color: statusTextColor,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          height: 1.4,
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          result.engine,
+                          style: TextStyle(
+                            color: palette.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              // Findings list
-              if (result.findings.isNotEmpty) ...
-                result.findings.map((f) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Icon(Icons.chevron_right_rounded,
-                                color: DeepGuardColors.primary, size: 16),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: statusContainer,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: palette.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(statusIcon, color: statusTextColor, size: 19),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          result.summary,
+                          style: TextStyle(
+                            color: statusTextColor,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            height: 1.4,
                           ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              f,
-                              style: const TextStyle(
-                                color: DeepGuardColors.textSecondary,
-                                fontSize: 13,
-                                height: 1.45,
-                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                for (final f in result.findings)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Icon(
+                            Icons.chevron_right_rounded,
+                            color: palette.primaryText,
+                            size: 18,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            f,
+                            style: TextStyle(
+                              color: palette.textSecondary,
+                              fontSize: 14,
+                              height: 1.45,
                             ),
                           ),
-                        ],
-                      ),
-                    )),
-              const SizedBox(height: 8),
-              // Bandwidth note
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: DeepGuardColors.surfaceDark.withAlpha(60),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  '📶  A small amount of internet data was used to run this trace. '
-                  'No image data is stored by DeepGuard.',
+                        ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                Text(
+                  'A small amount of network data was used for this check. DeepGuard does not store your media online.',
                   style: TextStyle(
-                    color: DeepGuardColors.textMuted,
-                    fontSize: 11,
+                    color: palette.textMuted,
+                    fontSize: 13,
                     height: 1.4,
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final palette = DeepGuardPalette.of(context);
+
     return FutureBuilder<ProvenanceReport>(
       future: _reportFuture,
       builder: (context, snapshot) {
@@ -1233,22 +1126,21 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
             padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                const SizedBox(
+                SizedBox(
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: DeepGuardColors.primary,
+                    color: palette.processingStatus,
                   ),
                 ),
                 const SizedBox(width: 12),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Tracing media origin & digital signatures...',
+                    'Inspecting file metadata and digital provenance…',
                     style: TextStyle(
-                      color: DeepGuardColors.textMuted,
-                      fontSize: 12,
-                      fontFamily: 'monospace',
+                      color: palette.textSecondary,
+                      fontSize: 14,
                     ),
                   ),
                 ),
@@ -1258,84 +1150,80 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
         }
 
         final report = snapshot.data!;
-        Color badgeColor;
-        IconData badgeIcon;
+        final IconData badgeIcon = report.isAiGenerated
+            ? Icons.auto_awesome_outlined
+            : report.isCameraOriginal
+                ? Icons.camera_alt_outlined
+                : report.category == 'Image Editor'
+                    ? Icons.brush_outlined
+                    : Icons.public_outlined;
 
-        // Neutral informational colours: provenance badges must never look
-        // like an Authentic/Manipulated verdict — the classification shown
-        // above is decided solely by the Hybrid CNN-RNN model.
-        if (report.isAiGenerated) {
-          badgeColor = DeepGuardColors.secondary;
-          badgeIcon = Icons.auto_awesome;
-        } else if (report.isCameraOriginal) {
-          badgeColor = DeepGuardColors.primary;
-          badgeIcon = Icons.camera_alt_outlined;
-        } else if (report.category == 'Image Editor') {
-          badgeColor = Colors.purpleAccent;
-          badgeIcon = Icons.brush_outlined;
-        } else {
-          badgeColor = Colors.blueAccent;
-          badgeIcon = Icons.public;
-        }
+        final String badgeText = report.isAiGenerated
+            ? 'AI Metadata Tag'
+            : report.isCameraOriginal
+                ? 'Camera Metadata'
+                : report.category == 'Image Editor'
+                    ? 'Editor Metadata'
+                    : 'Unverified Source';
 
         return GlassCard(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Icon(Icons.fingerprint,
-                      color: DeepGuardColors.primary, size: 16),
-                  const SizedBox(width: 6),
-                  const Expanded(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'ORIGIN & DIGITAL PROVENANCE',
-                        style: TextStyle(
-                          color: DeepGuardColors.textMuted,
-                          fontSize: 11,
-                          letterSpacing: 1.2,
-                          fontFamily: 'monospace',
-                          fontWeight: FontWeight.w600,
+                  Semantics(
+                    header: true,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ExcludeSemantics(
+                          child: Icon(
+                            Icons.fingerprint_rounded,
+                            color: palette.primaryText,
+                            size: 19,
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Origin & Digital Provenance',
+                          style: TextStyle(
+                            color: palette.textPrimary,
+                            fontSize: 16.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 8),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 5,
+                    ),
                     decoration: BoxDecoration(
-                      color: badgeColor.withAlpha(38),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: badgeColor.withAlpha(90)),
+                      color: palette.processingContainer,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: palette.primary.withValues(alpha: 0.35),
+                      ),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(badgeIcon, color: badgeColor, size: 12),
-                        const SizedBox(width: 4),
+                        Icon(badgeIcon, color: palette.primaryText, size: 15),
+                        const SizedBox(width: 5),
                         Text(
-                          report.isAiGenerated
-                              ? 'AI GENERATOR TAG'
-                              : report.isCameraOriginal
-                                  ? 'CAMERA METADATA'
-                                  : report.category == 'Image Editor'
-                                      ? 'EDITOR METADATA'
-                                      : 'UNVERIFIED SOURCE',
-                          // The label is white and the *chip* carries the hue.
-                          // Tinted-on-tinted was the trap here: this text sat on
-                          // badgeColor.withAlpha(38) of the same colour, so its
-                          // contrast depended on which of four badge colours
-                          // happened to be selected.
-                          style: const TextStyle(
-                            color: DeepGuardColors.textPrimary,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.4,
+                          badgeText,
+                          style: TextStyle(
+                            color: palette.primaryText,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ],
@@ -1343,30 +1231,16 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-
-              // Auxiliary-information disclaimer: provenance is metadata
-              // inspection only and is NOT part of the detection pipeline.
-              const Text(
-                'Auxiliary metadata only — provenance never overrides the '
-                'Hybrid CNN-RNN classification, and its absence does not '
-                'imply Authentic or Manipulated.',
+              const SizedBox(height: 10),
+              Text(
+                'Supplementary metadata only — provenance never overrides the AI model classification above.',
                 style: TextStyle(
-                  color: DeepGuardColors.textMuted,
-                  fontSize: 11,
-                  fontStyle: FontStyle.italic,
+                  color: palette.textMuted,
+                  fontSize: 13,
                   height: 1.4,
                 ),
               ),
-              const SizedBox(height: 10),
-
-              // Origin label. When the embedded metadata names a specific
-              // generative MODEL, that model is shown by name (e.g.
-              // "DALL·E 3 / GPT-4o image output (OpenAI)") instead of the
-              // generic bucket. History records saved before model
-              // attribution existed keep the generic wording — nothing is
-              // guessed. Auxiliary metadata only: this never changes the
-              // Hybrid CNN-RNN verdict above.
+              const SizedBox(height: 12),
               Text(
                 report.isAiGenerated && report.generatorModel != null
                     ? report.generatorModel!
@@ -1377,57 +1251,35 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
                             : report.category == 'Image Editor'
                                 ? 'Digital Editing Software'
                                 : 'No Recognizable Metadata',
-                style: const TextStyle(
-                  color: DeepGuardColors.textPrimary,
+                style: TextStyle(
+                  color: palette.textPrimary,
                   fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.3,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 8),
-
-              // Scope line for camera-tagged media. An EXIF hardware tag proves
-              // which device WROTE the file; it cannot prove what the file
-              // SHOWS. Without this line the card read as corroboration that a
-              // photo-of-a-screen was an authentic scene — the exact failure a
-              // reshoot of a generated image produced on a real device.
               if (report.isCameraOriginal) ...[
                 Text(
-                  'Confirms the capture device only. A photograph of a screen '
-                  'or of a printed image carries the same genuine tag, so this '
-                  'does not certify the scene as real.',
-                  // Full textMuted, not .withAlpha(220): this is the sentence
-                  // that stops a camera tag being read as a certificate, and it
-                  // was the dimmest block of text on the screen.
-                  style: const TextStyle(
-                    color: DeepGuardColors.textMuted,
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                    height: 1.4,
+                  'Confirms the capture device only. A photograph of a screen or printed image carries the same camera tag and does not certify the scene as real.',
+                  style: TextStyle(
+                    color: palette.textSecondary,
+                    fontSize: 13.5,
+                    height: 1.45,
                   ),
                 ),
                 const SizedBox(height: 8),
               ],
-
-              // Architecture family line for AI-attributed media.
               if (report.isAiGenerated && report.generatorFamily != null) ...[
                 Text(
-                  'Generative family: ${report.generatorFamily} — named from '
-                  'embedded metadata, not a verified origin.',
-                  style: const TextStyle(
-                    color: DeepGuardColors.textMuted,
-                    fontSize: 11,
-                    fontFamily: 'monospace',
-                    height: 1.4,
+                  'Generative family: ${report.generatorFamily} (read from embedded metadata).',
+                  style: TextStyle(
+                    color: palette.textSecondary,
+                    fontSize: 13.5,
+                    height: 1.45,
                   ),
                 ),
                 const SizedBox(height: 8),
               ],
-
-              // Detected source logo badge (auxiliary only — rendered from
-              // bundled assets with an icon fallback, fully offline, and it
-              // NEVER affects the classification). Shown for AI generators and
-              // for recognizable camera / editor / screen-capture sources.
               if (report.isAiGenerated ||
                   report.isCameraOriginal ||
                   report.category == 'Image Editor' ||
@@ -1440,83 +1292,67 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
                 ),
                 const SizedBox(height: 10),
               ],
-
-              // Evidence list
-              ...report.forensicEvidence.map((e) => Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('• ',
-                            style: TextStyle(
-                                color: DeepGuardColors.primary, fontSize: 12)),
-                        Expanded(
-                          child: Text(
-                            e,
-                            style: TextStyle(
-                              color: DeepGuardColors.textSecondary,
-                              fontSize: 12,
-                              height: 1.3,
-                            ),
+              for (final e in report.forensicEvidence)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 5),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '• ',
+                        style: TextStyle(
+                          color: palette.primaryText,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          e,
+                          style: TextStyle(
+                            color: palette.textSecondary,
+                            fontSize: 13.5,
+                            height: 1.4,
                           ),
                         ),
-                      ],
-                    ),
-                  )),
-
-              // ── Auto Source Trace Results ──────────────────────────────────
-              // Shown whenever an active internet connection is available — this
-              // now includes history records, so a saved item gets the same source
-              // trace as a fresh analysis. Offline, this block hides and only the
-              // on-device metadata provenance remains.
+                      ),
+                    ],
+                  ),
+                ),
               if (_hasInternet) ...[
-                const Divider(color: DeepGuardColors.glassBorder, height: 24),
+                Divider(color: palette.border, height: 24),
                 Row(
                   children: [
-                    Icon(Icons.verified_user_outlined,
-                        color: DeepGuardColors.secondary, size: 16),
+                    Icon(
+                      Icons.verified_user_outlined,
+                      color: palette.accentText,
+                      size: 17,
+                    ),
                     const SizedBox(width: 6),
-                    const Expanded(
+                    Expanded(
                       child: Text(
-                        'CONTENT CREDENTIALS',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        'Content Credentials (C2PA)',
                         style: TextStyle(
-                          color: DeepGuardColors.textMuted,
-                          fontSize: 11,
-                          letterSpacing: 1.5,
-                          fontFamily: 'monospace',
+                          color: palette.textPrimary,
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
                     Text(
-                      widget.isHistory ? 'SAVED SNAPSHOT' : 'AUTO-SCANNED',
-                      style: const TextStyle(
-                        // Solid primary at 11px. primary.withAlpha(160) measured
-                        // 3.78:1 worst case and 8px is below any large-text
-                        // exemption, so this badge was unreadable by design.
-                        color: DeepGuardColors.primary,
-                        fontSize: 11,
-                        letterSpacing: 1.2,
-                        fontFamily: 'monospace',
+                      widget.isHistory ? 'Saved Snapshot' : 'Auto-Checked',
+                      style: TextStyle(
+                        color: palette.primaryText,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 10),
-
-                // NOTE: The online auto-trace now runs only the C2PA check in
-                // _autoRunAllTraces(). The Google Lens reverse-image similarity
-                // trace was removed — its visually-similar web matches could be
-                // misleading — and is no longer called or displayed. C2PA is
-                // auxiliary only and never affects the Hybrid CNN-RNN
-                // classification.
-
-                // C2PA tile
                 _InlineTraceResult(
                   icon: Icons.verified_user_outlined,
-                  label: 'C2PA Credentials',
+                  label: 'C2PA Content Credentials',
                   isLoading: _c2paLoading,
                   result: _c2paResult,
                   onRerun: (widget.isHistory || _loadingTrace != null)
@@ -1536,11 +1372,6 @@ class _ProvenanceSectionState extends State<_ProvenanceSection> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Inline auto-displayed trace result tile
-// Shows a loading spinner → then result status + summary inline.
-// Includes a small Re-run icon for manual refresh.
-// ─────────────────────────────────────────────────────────────────────────────
 class _InlineTraceResult extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -1558,110 +1389,91 @@ class _InlineTraceResult extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Neutral informational colours — trace results never imply an
-    // Authentic/Manipulated verdict (that comes only from the CNN-RNN model).
-    final Color statusColor = result == null
-        ? DeepGuardColors.textMuted
-        : result!.status == 'found'
-            ? DeepGuardColors.info
-            : result!.status == 'not_found'
-                ? DeepGuardColors.textSecondary
-                : Colors.orangeAccent;
-
-    // The same status in words. `info` is the identification blue and clears
-    // 3:1 as a mark, but at 3.91:1 on a card it cannot be read as text, so the
-    // sentence below it is painted with the brighter variant.
+    final palette = DeepGuardPalette.of(context);
     final Color statusTextColor = result == null
-        ? DeepGuardColors.textMuted
+        ? palette.textMuted
         : result!.status == 'found'
-            ? DeepGuardColors.infoText
+            ? palette.primaryText
             : result!.status == 'not_found'
-                ? DeepGuardColors.textSecondary
-                : Colors.orangeAccent;
+                ? palette.textSecondary
+                : palette.warningText;
 
     final IconData statusIcon = result == null
-        ? Icons.hourglass_top
+        ? Icons.hourglass_top_rounded
         : result!.status == 'found'
             ? Icons.travel_explore_rounded
             : result!.status == 'not_found'
                 ? Icons.remove_circle_outline
                 : Icons.error_outline;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 350),
-      padding: const EdgeInsets.all(10),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
       decoration: BoxDecoration(
-        color: isLoading
-            ? DeepGuardColors.surfaceDark.withAlpha(80)
-            : statusColor.withAlpha(18),
+        color: palette.backgroundSecondary,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: isLoading
-              ? DeepGuardColors.primary.withAlpha(50)
-              : statusColor.withAlpha(70),
-        ),
+        border: Border.all(color: palette.border),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Engine icon
           Padding(
-            padding: const EdgeInsets.only(top: 1),
-            child: Icon(icon, color: DeepGuardColors.primary, size: 15),
+            padding: const EdgeInsets.only(top: 3),
+            child: Icon(icon, color: palette.primaryText, size: 18),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Label row
                 Text(
                   label,
-                  style: const TextStyle(
-                    color: DeepGuardColors.textMuted,
-                    fontSize: 11,
-                    letterSpacing: 0.5,
-                    fontFamily: 'monospace',
-                    fontWeight: FontWeight.w600,
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 4),
-                // Status / loading
                 if (isLoading)
                   Row(
                     children: [
                       SizedBox(
-                        width: 11,
-                        height: 11,
+                        width: 14,
+                        height: 14,
                         child: CircularProgressIndicator(
-                          strokeWidth: 1.5,
-                          color: DeepGuardColors.primary,
+                          strokeWidth: 2,
+                          color: palette.processingStatus,
                         ),
                       ),
-                      const SizedBox(width: 7),
-                      Text(
-                        'Scanning online sources...',
-                        style: TextStyle(
-                          color: DeepGuardColors.textMuted,
-                          fontSize: 11,
-                          fontStyle: FontStyle.italic,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Checking content credentials…',
+                          style: TextStyle(
+                            color: palette.textSecondary,
+                            fontSize: 13.5,
+                          ),
                         ),
                       ),
                     ],
                   )
                 else if (result != null) ...[
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(statusIcon, color: statusColor, size: 13),
-                      const SizedBox(width: 5),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Icon(statusIcon, color: statusTextColor, size: 16),
+                      ),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           result!.summary,
                           style: TextStyle(
                             color: statusTextColor,
-                            fontSize: 12,
+                            fontSize: 13.5,
                             fontWeight: FontWeight.w600,
-                            height: 1.3,
+                            height: 1.35,
                           ),
                         ),
                       ),
@@ -1669,35 +1481,31 @@ class _InlineTraceResult extends StatelessWidget {
                   ),
                   if (result!.findings.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    ...result!.findings.take(2).map((f) => Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            '› $f',
-                            style: TextStyle(
-                              color: DeepGuardColors.textSecondary,
-                              fontSize: 11,
-                              height: 1.3,
-                            ),
+                    for (final f in result!.findings.take(2))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          '› $f',
+                          style: TextStyle(
+                            color: palette.textSecondary,
+                            fontSize: 13,
+                            height: 1.35,
                           ),
-                        )),
+                        ),
+                      ),
                   ],
                 ],
               ],
             ),
           ),
-          // Re-run icon
-          if (!isLoading)
-            GestureDetector(
-              onTap: onRerun,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 6, top: 1),
-                child: Icon(
-                  Icons.refresh_rounded,
-                  size: 15,
-                  color: onRerun != null
-                      ? DeepGuardColors.primary.withAlpha(180)
-                      : DeepGuardColors.textMuted.withAlpha(80),
-                ),
+          if (!isLoading && onRerun != null)
+            IconButton(
+              onPressed: onRerun,
+              tooltip: 'Refresh C2PA credentials check',
+              icon: Icon(
+                Icons.refresh_rounded,
+                size: 20,
+                color: palette.primaryText,
               ),
             ),
         ],
@@ -1706,13 +1514,6 @@ class _InlineTraceResult extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Maps a detected source-app / platform name to a bundled brand logo under
-// `assets/images/provenance/`. Returns null when no logo ships, so callers fall
-// back to a generic Material icon. Substring-matched so vendor variants and the
-// "(filename heuristic)" / "(from filename)" suffixes still resolve. This is a
-// purely decorative provenance detail rendered fully offline and it NEVER
-// affects the CNN-RNN classification.
 String? provenanceLogoAsset(String raw) {
   final s = raw.toLowerCase();
   if (s.contains('chatgpt') || s.contains('dall') || s.contains('openai')) {
@@ -1733,12 +1534,15 @@ String? provenanceLogoAsset(String raw) {
   if (s.contains('facebook') || s.contains('fb_img') || s.contains('fbimg')) {
     return 'assets/images/provenance/facebook.png';
   }
-  if (s.contains('instagram') || s.contains('insta_') ||
+  if (s.contains('instagram') ||
+      s.contains('insta_') ||
       s.contains('cdninstagram')) {
     return 'assets/images/provenance/instagram.jpg';
   }
-  if (s.contains('twitter') || s.contains('x (twitter)') ||
-      s.contains('twimg') || s.contains('t.co')) {
+  if (s.contains('twitter') ||
+      s.contains('x (twitter)') ||
+      s.contains('twimg') ||
+      s.contains('t.co')) {
     return 'assets/images/provenance/twitter_x.png';
   }
   if (s.contains('reddit')) {
@@ -1762,14 +1566,6 @@ String? provenanceLogoAsset(String raw) {
   return null;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Detected-source logo badge (Provenance card)
-// Shows the bundled brand logo for the detected generator / capture / editing
-// app (ChatGPT, Gemini, Midjourney, CapCut, camera hardware, screen capture,
-// Facebook, TikTok, YouTube). When no logo ships it falls back to a brand-
-// coloured Material icon. Rendered fully offline and NEVER affects the CNN-RNN
-// classification; purely auxiliary provenance detail.
-// ─────────────────────────────────────────────────────────────────────────────
 class _GeneratorLogoBadge extends StatelessWidget {
   final String sourceApp;
   final bool isAi;
@@ -1785,54 +1581,54 @@ class _GeneratorLogoBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = DeepGuardPalette.of(context);
     final asset = provenanceLogoAsset(sourceApp);
     final (_, aiColor, aiName) = _aiToolLogo(sourceApp);
 
     final Color color = isAi
         ? aiColor
         : isCamera
-            ? DeepGuardColors.primary
+            ? palette.primaryButton
             : category == 'Image Editor'
-                ? Colors.purpleAccent
-                : DeepGuardColors.secondary;
-    // The same hue, lifted just far enough to read as words on every surface.
-    // These are vendor brand colours — ChatGPT's teal is #10A37F (3.1:1 on a
-    // card), Adobe's pink #FF2D8F, NVIDIA's green #76B900 — and none of them
-    // were chosen for legibility on a dark navy card. The mark keeps the real
-    // brand colour; only the text borrows the accessible version of it.
-    final Color safeColor = DeepGuardContrast.textSafeOn(color);
-    // AI tools get a cleaned display name; other sources show the detected
-    // app label verbatim (e.g. "CapCut Video Editor", "Samsung Camera Capture").
+                ? palette.accent
+                : palette.primaryButton;
+    final Color safeColor = DeepGuardContrast.textSafeOn(
+      color,
+      brightness: palette.brightness,
+    );
     final String name = isAi ? aiName : sourceApp;
     final String caption = isAi
-        ? 'DETECTED GENERATOR'
+        ? 'Detected Generator'
         : isCamera
-            ? 'CAPTURE DEVICE'
+            ? 'Capture Device'
             : category == 'Image Editor'
-                ? 'EDITING APP'
-                : 'DETECTED SOURCE';
+                ? 'Editing Software'
+                : 'Detected Source';
     final IconData fallbackIcon = isAi
-        ? Icons.auto_awesome
+        ? Icons.auto_awesome_outlined
         : isCamera
             ? Icons.camera_alt_outlined
             : category == 'Image Editor'
                 ? Icons.brush_outlined
-                : Icons.public;
+                : Icons.public_outlined;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: asset != null
-              ? Image.asset(
-                  asset,
-                  width: 36,
-                  height: 36,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _logoCircle(fallbackIcon, color),
-                )
-              : _logoCircle(fallbackIcon, color),
+        ExcludeSemantics(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: asset != null
+                ? Image.asset(
+                    asset,
+                    width: 36,
+                    height: 36,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) =>
+                        _logoCircle(fallbackIcon, color),
+                  )
+                : _logoCircle(fallbackIcon, color),
+          ),
         ),
         const SizedBox(width: 10),
         Flexible(
@@ -1846,22 +1642,15 @@ class _GeneratorLogoBadge extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: safeColor,
-                  fontSize: 13.5,
+                  fontSize: 14.5,
                   fontWeight: FontWeight.w700,
-                  letterSpacing: 0.2,
                 ),
               ),
-              const SizedBox(height: 2),
               Text(
                 caption,
-                style: const TextStyle(
-                  // Solid textMuted at 11px. 8.5px is not a size anyone can
-                  // read, and no contrast exception applies below 24px (or
-                  // 18.66px bold), so this caption was outside AA twice over.
-                  color: DeepGuardColors.textMuted,
-                  fontSize: 11,
-                  letterSpacing: 1.1,
-                  fontFamily: 'monospace',
+                style: TextStyle(
+                  color: palette.textMuted,
+                  fontSize: 13,
                 ),
               ),
             ],
@@ -1876,30 +1665,29 @@ class _GeneratorLogoBadge extends StatelessWidget {
         height: 36,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: color.withAlpha(38),
-          border: Border.all(color: color.withAlpha(150), width: 1.5),
+          color: color.withValues(alpha: 0.15),
+          border: Border.all(color: color.withValues(alpha: 0.6), width: 1.5),
         ),
         child: Icon(icon, color: color, size: 19),
       );
 }
 
-/// Maps a detected AI `sourceApp` string to a representative icon, brand colour
-/// and short display name. Substring-matched so vendor variants and the
-/// "(filename heuristic)" suffix still resolve. Unknown → neutral sparkle.
 (IconData, Color, String) _aiToolLogo(String raw) {
   final s = raw.toLowerCase();
   if (s.contains('openai') || s.contains('dall') || s.contains('chatgpt')) {
     return (Icons.auto_awesome, const Color(0xFF10A37F), 'ChatGPT · DALL·E');
   }
-  if (s.contains('gemini') || s.contains('imagen') ||
-      s.contains('synthid') || s.contains('deepmind')) {
+  if (s.contains('gemini') ||
+      s.contains('imagen') ||
+      s.contains('synthid') ||
+      s.contains('deepmind')) {
     return (Icons.psychology, const Color(0xFF4285F4), 'Gemini · Imagen');
   }
   if (s.contains('midjourney') || s.contains('mj-')) {
     return (Icons.waves, const Color(0xFF8B5CF6), 'Midjourney');
   }
   if (s.contains('firefly') || s.contains('adobe')) {
-    return (Icons.local_florist, const Color(0xFFFF2D8F), 'Adobe Firefly');
+    return (Icons.local_florist, const Color(0xFFD64B55), 'Adobe Firefly');
   }
   if (s.contains('flux') || s.contains('black forest')) {
     return (Icons.bolt, const Color(0xFFFF5C00), 'FLUX');
@@ -1916,14 +1704,22 @@ class _GeneratorLogoBadge extends StatelessWidget {
   if (s.contains('recraft')) {
     return (Icons.layers, const Color(0xFF00C2A8), 'Recraft');
   }
-  if (s.contains('stable diffusion') || s.contains('comfyui') ||
-      s.contains('novelai') || s.contains('a1111') || s.contains('sd-webui')) {
+  if (s.contains('stable diffusion') ||
+      s.contains('comfyui') ||
+      s.contains('novelai') ||
+      s.contains('a1111') ||
+      s.contains('sd-webui')) {
     return (Icons.blur_on, const Color(0xFFA855F7), 'Stable Diffusion');
   }
-  if (s.contains('stylegan') || s.contains('nvidia') ||
-      s.contains('nvlabs') || s.contains('thispersondoesnotexist')) {
+  if (s.contains('stylegan') ||
+      s.contains('nvidia') ||
+      s.contains('nvlabs') ||
+      s.contains('thispersondoesnotexist')) {
     return (Icons.memory, const Color(0xFF76B900), 'StyleGAN · NVIDIA');
   }
-  return (Icons.auto_awesome_motion, DeepGuardColors.secondary,
-      'Generative AI');
+  return (
+    Icons.auto_awesome_motion,
+    const Color(0xFF2457C5),
+    'Generative AI',
+  );
 }

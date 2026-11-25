@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 /// Internal class labels — mirrors the model/dataset terminology exactly.
@@ -37,6 +38,15 @@ class DeepGuardDetectionResult {
 
   /// Inference latency in milliseconds (wall-clock).
   final int latencyMs;
+
+  /// Optional real Grad-CAM 64x64 heatmap from `deepguard_image_gradcam.tflite`.
+  final Float32List? imageHeatmap;
+
+  /// Optional 10 per-frame 64x64 Grad-CAM heatmaps from `deepguard_video_gradcam.tflite`.
+  final List<Float32List>? videoHeatmaps;
+
+  /// Optional 10 per-frame Grad-CAM importance scores from `deepguard_video_gradcam.tflite`.
+  final Float32List? videoFrameScores;
 
   // ── Derived display properties ─────────────────────────────────────────────
 
@@ -89,6 +99,9 @@ class DeepGuardDetectionResult {
     required this.internalLabel,
     required this.confidence,
     required this.latencyMs,
+    this.imageHeatmap,
+    this.videoHeatmaps,
+    this.videoFrameScores,
   });
 
   /// Constructs a result directly from the raw TFLite scalar output.
@@ -97,6 +110,9 @@ class DeepGuardDetectionResult {
   factory DeepGuardDetectionResult.fromFakeProbability({
     required double fakeProbability,
     int latencyMs = 0,
+    Float32List? imageHeatmap,
+    List<Float32List>? videoHeatmaps,
+    Float32List? videoFrameScores,
   }) {
     final isFake = fakeProbability >= 0.5;
     final confidence = isFake ? fakeProbability : (1.0 - fakeProbability);
@@ -105,6 +121,9 @@ class DeepGuardDetectionResult {
       internalLabel: isFake ? InternalLabel.fake : InternalLabel.real,
       confidence: confidence.clamp(0.0, 1.0),
       latencyMs: latencyMs,
+      imageHeatmap: imageHeatmap,
+      videoHeatmaps: videoHeatmaps,
+      videoFrameScores: videoFrameScores,
     );
   }
 

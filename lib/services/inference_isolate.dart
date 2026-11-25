@@ -20,9 +20,21 @@ class InferenceResult {
   /// figures. Wall-clock latency is measured separately by the caller.
   final int nativeMicros;
 
+  /// Real Grad-CAM 64x64 heatmap (image branch).
+  final Float32List? imageHeatmap;
+
+  /// Real Grad-CAM 64x64 heatmaps for each of the 10 frames (video branch).
+  final List<Float32List>? videoHeatmaps;
+
+  /// Real Grad-CAM importance score for each of the 10 frames (video branch).
+  final Float32List? videoFrameScores;
+
   const InferenceResult({
     required this.fakeProbability,
     required this.nativeMicros,
+    this.imageHeatmap,
+    this.videoHeatmaps,
+    this.videoFrameScores,
   });
 }
 
@@ -92,6 +104,8 @@ class InferenceIsolate {
   Future<void> start({
     required String imageAsset,
     required String videoAsset,
+    String? imageGradCamAsset,
+    String? videoGradCamAsset,
   }) async {
     if (_toWorker != null) return;
 
@@ -99,6 +113,8 @@ class InferenceIsolate {
     // plain bytes. Both copies are transient — sent once, then dropped.
     final Uint8List imageBytes;
     final Uint8List videoBytes;
+    Uint8List? imageGradCamBytes;
+    Uint8List? videoGradCamBytes;
     try {
       imageBytes = (await rootBundle.load(imageAsset)).buffer.asUint8List();
       videoBytes = (await rootBundle.load(videoAsset)).buffer.asUint8List();
@@ -106,6 +122,25 @@ class InferenceIsolate {
       dev.log('[DeepGuard][ISOLATE] model asset read FAILED: $e\n$st',
           name: 'DeepGuard');
       rethrow;
+    }
+
+    if (imageGradCamAsset != null) {
+      try {
+        imageGradCamBytes =
+            (await rootBundle.load(imageGradCamAsset)).buffer.asUint8List();
+      } catch (e) {
+        dev.log('[DeepGuard][ISOLATE] image Grad-CAM asset skipped: $e',
+            name: 'DeepGuard');
+      }
+    }
+    if (videoGradCamAsset != null) {
+      try {
+        videoGradCamBytes =
+            (await rootBundle.load(videoGradCamAsset)).buffer.asUint8List();
+      } catch (e) {
+        dev.log('[DeepGuard][ISOLATE] video Grad-CAM asset skipped: $e',
+            name: 'DeepGuard');
+      }
     }
 
     final handshake = ReceivePort();
@@ -123,6 +158,8 @@ class InferenceIsolate {
           ready: handshake.sendPort,
           imageBytes: imageBytes,
           videoBytes: videoBytes,
+          imageGradCamBytes: imageGradCamBytes,
+          videoGradCamBytes: videoGradCamBytes,
         ),
         errorsAreFatal: false,
         onError: errors.sendPort,
@@ -264,6 +301,8 @@ class InferenceIsolate {
 
     Interpreter? image;
     Interpreter? video;
+    Interpreter? imageGradCam;
+    Interpreter? videoGradCam;
     try {
       image = Interpreter.fromBuffer(boot.imageBytes,
           options: InterpreterOptions()..threads = 2)
@@ -281,6 +320,31 @@ class InferenceIsolate {
       return;
     }
 
+    if (boot.imageGradCamBytes != null) {
+      try {
+        imageGradCam = Interpreter.fromBuffer(boot.imageGradCamBytes!,
+            options: InterpreterOptions()..threads = 2)
+          ..allocateTensors();
+      } catch (e) {
+        imageGradCam?.close();
+        imageGradCam = null;
+        dev.log('[DeepGuard][ISOLATE] image Grad-CAM init skipped: $e',
+            name: 'DeepGuard');
+      }
+    }
+    if (boot.videoGradCamBytes != null) {
+      try {
+        videoGradCam = Interpreter.fromBuffer(boot.videoGradCamBytes!,
+            options: InterpreterOptions()..threads = 2)
+          ..allocateTensors();
+      } catch (e) {
+        videoGradCam?.close();
+        videoGradCam = null;
+        dev.log('[DeepGuard][ISOLATE] video Grad-CAM init skipped: $e',
+            name: 'DeepGuard');
+      }
+    }
+
     boot.ready.send(commands.sendPort);
 
     commands.listen((message) {
@@ -288,8 +352,12 @@ class InferenceIsolate {
       if (job.kind == _JobKind.shutdown) {
         image?.close();
         video?.close();
+        imageGradCam?.close();
+        videoGradCam?.close();
         image = null;
         video = null;
+        imageGradCam = null;
+        videoGradCam = null;
         job.reply.send(null);
         commands.close();
         return;
@@ -297,12 +365,14 @@ class InferenceIsolate {
 
       final interpreter =
           job.kind == _JobKind.image ? image : video;
+      final gradCamInterpreter =
+          job.kind == _JobKind.image ? imageGradCam : videoGradCam;
       if (interpreter == null) {
         job.reply.send(_Failure('worker already shut down'));
         return;
       }
       try {
-        job.reply.send(_invoke(interpreter, job));
+        job.reply.send(_invoke(interpreter, gradCamInterpreter, job));
       } catch (e, st) {
         dev.log('[DeepGuard][ISOLATE] ${job.kind} inference FAILED: $e\n$st',
             name: 'DeepGuard');
@@ -320,7 +390,11 @@ class InferenceIsolate {
   /// every one of the 49,152 (image) or 491,520 (video) floats, and appending
   /// them into a growable `List<int>`. Passing the Float32List's own byte view
   /// hits the early-return branch instead: one memcpy, identical bytes.
-  static InferenceResult _invoke(Interpreter interpreter, _Job job) {
+  static InferenceResult _invoke(
+    Interpreter interpreter,
+    Interpreter? gradCamInterpreter,
+    _Job job,
+  ) {
     final input = interpreter.getInputTensor(0);
     if (input.type != TensorType.float32) {
       throw StateError(
@@ -358,9 +432,61 @@ class InferenceIsolate {
     // exactly as the previous nested-list path ignored it.
     final value = ByteData.sublistView(raw).getFloat32(0, Endian.little);
 
+    Float32List? imageHeatmap;
+    List<Float32List>? videoHeatmaps;
+    Float32List? videoFrameScores;
+
+    if (gradCamInterpreter != null) {
+      try {
+        gradCamInterpreter.getInputTensor(0).setTo(bytes);
+        gradCamInterpreter.invoke();
+        final outTensors = gradCamInterpreter.getOutputTensors();
+        for (final t in outTensors) {
+          final bd = ByteData.sublistView(t.data);
+          final count = t.data.lengthInBytes ~/ 4;
+          final floats = Float32List(count);
+          for (var i = 0; i < count; i++) {
+            floats[i] = bd.getFloat32(i * 4, Endian.little);
+          }
+
+          if (job.kind == _JobKind.image &&
+              t.shape.length == 2 &&
+              t.shape[0] == 64 &&
+              t.shape[1] == 64) {
+            imageHeatmap = floats;
+          } else if (job.kind == _JobKind.video &&
+              t.shape.length == 3 &&
+              t.shape[0] == 10 &&
+              t.shape[1] == 64 &&
+              t.shape[2] == 64) {
+            const perFrame = 64 * 64;
+            videoHeatmaps = List<Float32List>.generate(
+              10,
+              (f) => Float32List.sublistView(
+                floats,
+                f * perFrame,
+                (f + 1) * perFrame,
+              ),
+              growable: false,
+            );
+          } else if (job.kind == _JobKind.video &&
+              t.shape.length == 1 &&
+              t.shape[0] == 10) {
+            videoFrameScores = floats;
+          }
+        }
+      } catch (e) {
+        dev.log('[DeepGuard][ISOLATE] Grad-CAM invoke failed: $e',
+            name: 'DeepGuard');
+      }
+    }
+
     return InferenceResult(
       fakeProbability: value,
       nativeMicros: watch.elapsedMicroseconds,
+      imageHeatmap: imageHeatmap,
+      videoHeatmaps: videoHeatmaps,
+      videoFrameScores: videoFrameScores,
     );
   }
 }
@@ -389,11 +515,15 @@ class _Boot {
   final SendPort ready;
   final Uint8List imageBytes;
   final Uint8List videoBytes;
+  final Uint8List? imageGradCamBytes;
+  final Uint8List? videoGradCamBytes;
 
   const _Boot({
     required this.ready,
     required this.imageBytes,
     required this.videoBytes,
+    this.imageGradCamBytes,
+    this.videoGradCamBytes,
   });
 }
 

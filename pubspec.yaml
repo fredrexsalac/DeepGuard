@@ -44,6 +44,8 @@ flutter:
     - assets/images/provenance/
     - deepfake_icon.png
     - assets/models/deepguard_image.tflite
+    - assets/models/deepguard_image_gradcam.tflite
     - assets/models/deepguard_video.tflite
+    - assets/models/deepguard_video_gradcam.tflite
     - assets/models/labels.txt
     - assets/models/model_metadata.txt

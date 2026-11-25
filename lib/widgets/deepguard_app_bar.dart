@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
-/// Custom DeepGuard branded app bar with cyber-security styling.
+/// DeepGuard accessible, theme-aware top app bar.
 class DeepGuardAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final List<Widget>? actions;
@@ -18,100 +18,66 @@ class DeepGuardAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = DeepGuardPalette.of(context);
     return AppBar(
       leading: leading,
-      title: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (showLogo) ...[
-            Container(
-              width: 28,
-              height: 28,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: DeepGuardColors.primaryGradient,
+      title: Semantics(
+        header: true,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (showLogo) ...[
+              ExcludeSemantics(
+                child: Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: palette.brandNavy,
+                    border: Border.all(
+                      color: palette.accent.withValues(alpha: 0.6),
+                      width: 1,
+                    ),
+                  ),
+                  child: const Center(
+                    child: Icon(
+                      Icons.shield_rounded,
+                      size: 16,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
               ),
-              child: const Center(
-                child: Icon(Icons.visibility, size: 16, color: Colors.white),
+              const SizedBox(width: 10),
+            ],
+            Flexible(
+              child: Text(
+                title,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
-            const SizedBox(width: 10),
           ],
-          Text(
-            title,
-            style: const TextStyle(
-              color: DeepGuardColors.textPrimary,
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1.2,
-            ),
-          ),
-        ],
-      ),
-      actions: actions,
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      centerTitle: true,
-      iconTheme: const IconThemeData(color: DeepGuardColors.primary),
-    );
-  }
-
-  @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
-}
-
-/// DeepGuard branded bottom navigation bar.
-class DeepGuardBottomNav extends StatelessWidget {
-  final int currentIndex;
-  final Function(int) onTap;
-
-  const DeepGuardBottomNav({
-    super.key,
-    required this.currentIndex,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(
-            color: DeepGuardColors.glassBorder,
-            width: 0.5,
-          ),
         ),
       ),
-      child: BottomNavigationBar(
-        currentIndex: currentIndex,
-        onTap: onTap,
-        backgroundColor: DeepGuardColors.surfaceDark,
-        selectedItemColor: DeepGuardColors.primary,
-        unselectedItemColor: DeepGuardColors.textMuted,
-        type: BottomNavigationBarType.fixed,
-        elevation: 0,
-        selectedFontSize: 11,
-        unselectedFontSize: 11,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.shield_outlined),
-            activeIcon: Icon(Icons.shield),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.add_photo_alternate_outlined),
-            activeIcon: Icon(Icons.add_photo_alternate),
-            label: 'Analyze',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.info_outline),
-            activeIcon: Icon(Icons.info),
-            label: 'About',
-          ),
-        ],
+      actions: actions,
+      backgroundColor: palette.surface,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      scrolledUnderElevation: 0.5,
+      centerTitle: true,
+      iconTheme: IconThemeData(color: palette.primaryText),
+      bottom: PreferredSize(
+        preferredSize: const Size.fromHeight(1),
+        child: Divider(height: 1, thickness: 1, color: palette.border),
       ),
     );
   }
+
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight + 1);
 }

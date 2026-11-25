@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'analysis_framing.dart';
+import 'gradcam_evidence.dart';
 
 enum MediaType { image, video }
 enum PredictionStatus { pending, processing, completed, error }
@@ -22,6 +23,9 @@ class PredictionResult {
   /// recorded. See [AnalysisFraming] for why the distinction matters.
   final AnalysisFraming? framing;
 
+  /// Real model-prescribed Grad-CAM spatial attribution computed on-device.
+  final GradCamEvidence? gradCam;
+
   PredictionResult({
     required this.id,
     this.filePath,
@@ -31,14 +35,22 @@ class PredictionResult {
     this.confidence = 0.0,
     this.errorMessage,
     this.framing,
+    this.gradCam,
     DateTime? timestamp,
   }) : timestamp = timestamp ?? DateTime.now();
 
   double get confidencePercentage => confidence * 100;
 
+  /// User-facing classification label: REAL or A.I.
   String get resultLabel {
     if (result == null) return 'Pending';
-    return result == DetectionResult.authentic ? 'Authentic' : 'Manipulated';
+    return result == DetectionResult.authentic ? 'REAL' : 'A.I.';
+  }
+
+  /// Internal model/dataset class label (Real / Fake) preserved unchanged.
+  String get internalClassLabel {
+    if (result == null) return 'Unknown';
+    return result == DetectionResult.authentic ? 'Real' : 'Fake';
   }
 
   bool get isHighConfidence => confidencePercentage >= 70;
@@ -52,25 +64,41 @@ class PredictionResult {
         : DeepGuardColors.fake;
   }
 
-  /// The verdict colour with enough luminance to be read as words. `fake`
-  /// measures 4.94:1 on the page background but only 4.04:1 on a card and
-  /// 3.37:1 on the lightest one, so any text painted with the classification
-  /// red needs the lighter variant. `authentic` clears 7.78:1 worst case and
-  /// is returned as-is rather than brightened out of its own identity. Use
-  /// [resultColor] for fills, icons, borders and glows; use this for glyphs.
   Color get resultTextColor {
     if (result == null) return DeepGuardColors.textMuted;
     return result == DetectionResult.authentic
-        ? DeepGuardColors.authentic
+        ? DeepGuardColors.authenticText
         : DeepGuardColors.fakeText;
   }
 
-  IconData get resultIcon {
-    if (status == PredictionStatus.processing) return Icons.hourglass_top;
-    if (status == PredictionStatus.error) return Icons.error_outline;
-    if (result == null) return Icons.help_outline;
+  /// Theme-aware graphic/badge color for Light and Dark modes.
+  Color resultColorFor(DeepGuardPalette palette) {
+    if (result == null) return palette.textMuted;
     return result == DetectionResult.authentic
-        ? Icons.verified
+        ? palette.realClassification
+        : palette.aiClassification;
+  }
+
+  /// Theme-aware normal-text color guaranteed >= 4.5:1 in Light and Dark modes.
+  Color resultTextColorFor(DeepGuardPalette palette) {
+    if (result == null) return palette.textMuted;
+    return result == DetectionResult.authentic ? palette.realText : palette.aiText;
+  }
+
+  /// Theme-aware soft container background color for verdict cards/chips.
+  Color resultContainerFor(DeepGuardPalette palette) {
+    if (result == null) return palette.surfaceElevated;
+    return result == DetectionResult.authentic
+        ? palette.realContainer
+        : palette.aiContainer;
+  }
+
+  IconData get resultIcon {
+    if (status == PredictionStatus.processing) return Icons.hourglass_top_rounded;
+    if (status == PredictionStatus.error) return Icons.error_outline_rounded;
+    if (result == null) return Icons.help_outline_rounded;
+    return result == DetectionResult.authentic
+        ? Icons.verified_rounded
         : Icons.warning_amber_rounded;
   }
 
@@ -83,6 +111,7 @@ class PredictionResult {
     double? confidence,
     String? errorMessage,
     AnalysisFraming? framing,
+    GradCamEvidence? gradCam,
     DateTime? timestamp,
   }) {
     return PredictionResult(
@@ -94,6 +123,7 @@ class PredictionResult {
       confidence: confidence ?? this.confidence,
       errorMessage: errorMessage ?? this.errorMessage,
       framing: framing ?? this.framing,
+      gradCam: gradCam ?? this.gradCam,
       timestamp: timestamp ?? this.timestamp,
     );
   }

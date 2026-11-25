@@ -1,6 +1,6 @@
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/user_profile.dart';
 import '../models/analysis_outcome.dart';
@@ -8,45 +8,52 @@ import '../models/history_entry.dart';
 import '../models/prediction_result.dart';
 import '../services/profile_service.dart';
 import '../services/history_backup_service.dart';
+import '../services/theme_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/deepguard_app_bar.dart';
+import '../widgets/glass_card.dart';
 import 'result_screen.dart';
 import 'processing_screen.dart';
 import 'upload_screen.dart' show MediaSource;
 
+/// DeepGuard Settings, Profile & History Screen.
+///
+/// Provides:
+///   1. Accessible Light / Dark / System Default theme selector with instant
+///      application and persistent storage.
+///   2. Profile customization (avatar & display name).
+///   3. Local backup export & restore.
+///   4. Accessible analysis history with REAL / A.I. badges, provenance
+///      cross-check tally, and both swipe + non-swipe record management.
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen>
-    with TickerProviderStateMixin {
+class _ProfileScreenState extends State<ProfileScreen> {
   final _svc = ProfileService();
+  final _themeSvc = ThemeService();
   List<HistoryEntry> _history = [];
   bool _loading = true;
   bool _editingName = false;
+  bool _busyBackup = false;
   final _nameCtrl = TextEditingController();
-
-  late final AnimationController _hexCtrl;
 
   @override
   void initState() {
     super.initState();
-    _hexCtrl = AnimationController(
-        vsync: this, duration: const Duration(seconds: 10))..repeat();
     _svc.addListener(_onServiceChanged);
     _loadHistory();
   }
 
   void _onServiceChanged() {
-    if (mounted) {
-      _loadHistory();
-    }
+    if (mounted) _loadHistory();
   }
 
   @override
   void dispose() {
-    _hexCtrl.dispose();
     _nameCtrl.dispose();
     _svc.removeListener(_onServiceChanged);
     super.dispose();
@@ -54,12 +61,19 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   Future<void> _loadHistory() async {
     final profile = _svc.activeProfile;
-    if (profile == null) { setState(() => _loading = false); return; }
+    if (profile == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
     final h = await _svc.getHistory(profile.id);
-    if (mounted) setState(() { _history = h; _loading = false; });
+    if (mounted) {
+      setState(() {
+        _history = h;
+        _loading = false;
+      });
+    }
   }
 
-  // ── Edit name ──────────────────────────────────────────────────────────────
   void _startEditName() {
     final profile = _svc.activeProfile;
     if (profile == null) return;
@@ -71,51 +85,60 @@ class _ProfileScreenState extends State<ProfileScreen>
     final profile = _svc.activeProfile;
     if (profile == null) return;
     final newName = _nameCtrl.text.trim();
-    if (newName.isEmpty) { setState(() => _editingName = false); return; }
-    // Update name in profiles list
-    final idx = _svc.profiles.indexWhere((p) => p.id == profile.id);
-    if (idx >= 0) {
-      // ProfileService doesn't expose updateProfile publicly — call saveProfile
+    if (newName.isNotEmpty) {
       await _svc.updateProfileName(profile.id, newName);
     }
     if (mounted) setState(() => _editingName = false);
   }
 
-  // ── Pick profile picture ───────────────────────────────────────────────────
   Future<void> _pickProfilePicture() async {
-    final x = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 80,
-      maxWidth: 400,
-    );
-    if (x == null) return;
-    final profile = _svc.activeProfile;
-    if (profile == null) return;
-    await _svc.updateProfilePicture(profile.id, x.path);
-    if (mounted) setState(() {});
+    try {
+      final x = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 80,
+        maxWidth: 400,
+      );
+      if (x == null) return;
+      final profile = _svc.activeProfile;
+      if (profile == null) return;
+      await _svc.updateProfilePicture(profile.id, x.path);
+      if (mounted) setState(() {});
+    } on MissingPluginException {
+      // Safe fallback in test environment
+    } catch (_) {
+      _showSnack('Could not update profile picture.', isError: true);
+    }
   }
 
-  // ── History item tap ───────────────────────────────────────────────────────
   void _onHistoryTap(HistoryEntry entry) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0D1035),
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => _HistoryActionSheet(
+      showDragHandle: true,
+      builder: (sheetCtx) => _HistoryActionSheet(
         entry: entry,
-        onViewResult: () { Navigator.pop(context); _viewResult(entry); },
-        onReanalyse: () { Navigator.pop(context); _reanalyse(entry); },
+        onViewResult: () {
+          Navigator.pop(sheetCtx);
+          _viewResult(entry);
+        },
+        onReanalyse: () {
+          Navigator.pop(sheetCtx);
+          _reanalyse(entry);
+        },
+        onDelete: () async {
+          Navigator.pop(sheetCtx);
+          final confirmed = await _confirmDeleteEntry(entry);
+          if (confirmed && mounted) {
+            final profile = _svc.activeProfile;
+            if (profile != null) {
+              await _svc.deleteHistoryEntry(profile.id, entry.id);
+            }
+          }
+        },
       ),
     );
   }
 
   void _viewResult(HistoryEntry entry) {
-    // Deliberately NOT gated on entry.fileExists. The record itself carries the
-    // verdict, confidence, date and provenance snapshot, so the report must stay
-    // readable after a data wipe or a restore from backup, when only the media
-    // file is gone. ResultScreen degrades the preview to a placeholder in that
-    // case. Re-analysis is the operation that genuinely needs the file.
     final result = PredictionResult(
       id: entry.id,
       filePath: entry.filePath,
@@ -128,139 +151,124 @@ class _ProfileScreenState extends State<ProfileScreen>
               : null,
       confidence: entry.confidence,
       timestamp: entry.timestamp,
-      // Replay has to carry the framing too: whether this verdict came from a
-      // tight face crop or a whole wide frame is part of what the record means,
-      // and null for legacy entries simply draws nothing.
       framing: entry.framing,
+      gradCam: entry.gradCam,
     );
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ResultScreen(
-        result: result,
-        filePath: entry.filePath ?? '',
-        isHistory: true,
-        historyProvenance: entry.provenance,
-        // The provenance snapshot travels with the record, which is all the
-        // cross-check needs to re-derive its flag offline.
-        onAnalyzeAnother: () => Navigator.of(context).pop(),
-        onGoHome: () => Navigator.of(context).pop(),
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ResultScreen(
+          result: result,
+          filePath: entry.filePath ?? '',
+          isHistory: true,
+          historyProvenance: entry.provenance,
+          onAnalyzeAnother: () => Navigator.of(context).pop(),
+          onGoHome: () => Navigator.of(context).pop(),
+        ),
       ),
-    ));
+    );
   }
 
   void _reanalyse(HistoryEntry entry) {
-    if (!entry.fileExists) { _showFileGone(); return; }
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ProcessingScreen(
-        filePath: entry.filePath!,
-        mediaType: entry.mediaType,
-        // History does not persist the original capture method; re-analysis of
-        // a stored file is treated as a gallery-sourced media item.
-        source: MediaSource.gallery,
-        onComplete: (result) {
-          final updated = HistoryEntry(
-            // Match the live result id so the ResultScreen can persist this
-            // record's provenance/source-trace snapshot under the same id.
-            id: result.id,
-            filePath: entry.filePath,
-            mediaType: entry.mediaType,
-            detectionResult: result.result == DetectionResult.authentic
-                ? 'authentic'
-                : result.result == DetectionResult.manipulated
-                    ? 'manipulated'
-                    : null,
-            confidence: result.confidence,
-            timestamp: DateTime.now(),
-            // Re-analysis has its own fresh framing — the face may be found now
-            // where it was not before, and the record must show what this run
-            // actually looked at rather than the old run's geometry.
-            framing: result.framing,
-          );
-          final profile = _svc.activeProfile;
-          if (profile != null) {
-            _svc.saveHistoryEntry(profile.id, updated);
-            _svc.incrementStats(profile.id,
-                isFake: result.result == DetectionResult.manipulated);
-          }
-          Navigator.of(context).pushReplacement(MaterialPageRoute(
-            builder: (_) => ResultScreen(
-              result: result,
-              filePath: entry.filePath ?? '',
-              onAnalyzeAnother: () => Navigator.of(context).pop(),
-              onGoHome: () => Navigator.of(context).pop(),
-            ),
-          ));
-        },
-      ),
-    ));
-  }
-
-  void _showFileGone() {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('File no longer available on this device.',
-          style: TextStyle(fontFamily: 'monospace')),
-      backgroundColor: DeepGuardColors.fake,
-      behavior: SnackBarBehavior.floating,
-    ));
-  }
-
-  // ── Data backup: export / restore ─────────────────────────────────────────
-  //
-  // History lives in SharedPreferences, which Android wipes on uninstall, so
-  // the user can keep their records across a reinstall by exporting them to a
-  // JSON file first and importing that file afterwards. Both actions only ever
-  // ADD data on import (records are matched by id), so importing twice cannot
-  // duplicate anything, and nothing here is uploaded or shared anywhere.
-  bool _busyBackup = false;
-
-  void _showBackupSnack(String text, Color background) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(text,
-          style: const TextStyle(
-              color: Colors.white, fontSize: 12, fontFamily: 'monospace',
-              height: 1.4)),
-      // Fixed dark background + white text keeps the message readable in both
-      // light and dark system themes.
-      backgroundColor: background,
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 5),
-    ));
-  }
-
-  Future<int> _countAllRecords() async {
-    var total = 0;
-    for (final p in _svc.profiles) {
-      total += (await _svc.getHistory(p.id)).length;
+    if (!entry.fileExists) {
+      _showSnack(
+        'Original media file is no longer available on this device.',
+        isError: true,
+      );
+      return;
     }
-    return total;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProcessingScreen(
+          filePath: entry.filePath!,
+          mediaType: entry.mediaType,
+          source: MediaSource.gallery,
+          onComplete: (result) {
+            final updated = HistoryEntry(
+              id: result.id,
+              filePath: entry.filePath,
+              mediaType: entry.mediaType,
+              detectionResult: result.result == DetectionResult.authentic
+                  ? 'authentic'
+                  : result.result == DetectionResult.manipulated
+                      ? 'manipulated'
+                      : null,
+              confidence: result.confidence,
+              timestamp: DateTime.now(),
+              framing: result.framing,
+              gradCam: result.gradCam,
+            );
+            final profile = _svc.activeProfile;
+            if (profile != null && result.status == PredictionStatus.completed) {
+              _svc.saveHistoryEntry(profile.id, updated);
+              _svc.incrementStats(
+                profile.id,
+                isFake: result.result == DetectionResult.manipulated,
+              );
+            }
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (_) => ResultScreen(
+                  result: result,
+                  filePath: entry.filePath ?? '',
+                  onAnalyzeAnother: () => Navigator.of(context).pop(),
+                  onGoHome: () => Navigator.of(context).pop(),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  void _showSnack(String text, {bool isError = false, bool isSuccess = false}) {
+    if (!mounted) return;
+    final palette = DeepGuardPalette.of(context);
+    final bg = isError
+        ? palette.dangerButton
+        : isSuccess
+            ? const Color(0xFF117A50)
+            : palette.brandNavy;
+    final fg = isError ? palette.onDangerButton : Colors.white;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: bg,
+        content: Text(
+          text,
+          style: TextStyle(color: fg, fontSize: 14.5),
+        ),
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   Future<void> _exportBackup() async {
     if (_busyBackup) return;
     if (_svc.profiles.isEmpty) {
-      _showBackupSnack('Nothing to export yet.', const Color(0xFF14161F));
+      _showSnack('Nothing to export yet.');
       return;
     }
     setState(() => _busyBackup = true);
-    final records = await _countAllRecords();
     try {
-      final path = await HistoryBackupService().exportBackup();
-      if (path == null) {
-        _showBackupSnack(
-            'Export cancelled — no file was written.', const Color(0xFF14161F));
+      final exportRes = await HistoryBackupService().exportEvidenceArchive();
+      if (exportRes == null) {
+        _showSnack('Export cancelled — no archive was written.');
       } else {
-        final name = path.replaceAll('\\', '/').split('/').last;
-        _showBackupSnack(
-            'Backup saved as $name ($records record(s), '
-            '${_svc.profiles.length} profile(s)). Keep the file outside the '
-            'app before uninstalling.',
-            DeepGuardColors.authentic);
+        _showSnack(
+          'Evidence archive saved as ${exportRes.fileName} '
+          '(${exportRes.recordsCount} record(s), '
+          '${exportRes.evidenceFilesCount} image/video evidence file(s)).',
+          isSuccess: true,
+        );
       }
     } on StateError catch (e) {
-      _showBackupSnack(e.message, DeepGuardColors.fake);
+      _showSnack(e.message, isError: true);
     } catch (_) {
-      _showBackupSnack('Export failed — the file could not be created.',
-          DeepGuardColors.fake);
+      _showSnack(
+        'Export failed — the ZIP evidence archive could not be created.',
+        isError: true,
+      );
     } finally {
       if (mounted) setState(() => _busyBackup = false);
     }
@@ -270,32 +278,21 @@ class _ProfileScreenState extends State<ProfileScreen>
     if (_busyBackup) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF0D1035),
-        title: const Text('Restore From Backup File',
-            style: TextStyle(color: DeepGuardColors.textPrimary,
-                fontSize: 16, fontWeight: FontWeight.w700)),
+      builder: (dlgCtx) => AlertDialog(
+        title: const Text('Restore Evidence Archive'),
         content: const Text(
-          'Pick a DeepGuard backup (.json) file.\n\n'
-          'Records that are missing on this device are added back; records '
-          'already here are skipped, so nothing is duplicated or overwritten.\n\n'
-          'A backup stores analysis records and provenance snapshots only — '
-          'the analysed photo/video files are not inside it, so their previews '
-          'need re-analysis.',
-          style: TextStyle(
-              color: DeepGuardColors.textSecondary, fontSize: 13,
-              height: 1.4)),
+          'Select a DeepGuard Evidence Archive (.zip) or legacy backup (.json).\n\n'
+          'Restores saved records, provenance snapshots, and bundled image or '
+          'video evidence for previous results without duplicating entries.',
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel',
-                style: TextStyle(color: DeepGuardColors.textMuted)),
+            onPressed: () => Navigator.pop(dlgCtx, false),
+            child: const Text('Cancel'),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Choose File',
-                style: TextStyle(color: DeepGuardColors.primary,
-                    fontWeight: FontWeight.w700)),
+          FilledButton(
+            onPressed: () => Navigator.pop(dlgCtx, true),
+            child: const Text('Choose Archive'),
           ),
         ],
       ),
@@ -306,448 +303,809 @@ class _ProfileScreenState extends State<ProfileScreen>
     try {
       final result = await HistoryBackupService().importBackup();
       await _loadHistory();
-      _showBackupSnack(
+      _showSnack(
         result.message,
-        result.ok
-            ? (result.recordsAdded > 0
-                ? DeepGuardColors.authentic
-                : const Color(0xFF14161F))
-            : DeepGuardColors.fake,
+        isError: !result.ok && !result.cancelled,
+        isSuccess:
+            result.ok && (result.recordsAdded > 0 || result.evidenceRestored > 0),
       );
     } catch (_) {
-      _showBackupSnack('Restore failed — the backup could not be read.',
-          DeepGuardColors.fake);
+      _showSnack('Restore failed — the archive could not be read.', isError: true);
     } finally {
       if (mounted) setState(() => _busyBackup = false);
     }
   }
 
-  // ── Build ──────────────────────────────────────────────────────────────────
-  @override
-  Widget build(BuildContext context) {
-    final profile = _svc.activeProfile;
-    return Scaffold(
-      backgroundColor: const Color(0xFF060918),
-      body: Stack(children: [
-        Positioned.fill(
-          child: AnimatedBuilder(
-            animation: _hexCtrl,
-            builder: (_, __) => CustomPaint(
-                painter: _HexBgPainter(t: _hexCtrl.value)),
-          ),
-        ),
-        SafeArea(
-          child: Column(children: [
-            _buildProfileCard(profile),
-            _buildStatsRow(profile),
-            _buildBackupRow(),
-            _buildHistoryHeader(),
-            Expanded(
-              // History is stored locally (SharedPreferences) — always available
-              // offline. Pull down to reload from disk.
-              child: RefreshIndicator(
-                onRefresh: _loadHistory,
-                color: DeepGuardColors.primary,
-                backgroundColor: const Color(0xFF0D1035),
-                child: _buildHistoryBody(),
-              ),
-            ),
-          ]),
-        ),
-      ]),
-    );
-  }
-
-  // ── Profile card ───────────────────────────────────────────────────────────
-  Widget _buildProfileCard(UserProfile? profile) {
-    final picPath = profile?.profilePicturePath;
-    final hasRealPic = picPath != null && File(picPath).existsSync();
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-        // Avatar / profile picture
-        GestureDetector(
-          onTap: _pickProfilePicture,
-          child: Stack(children: [
-            Container(
-              width: 72, height: 72,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: profile?.avatarColor.withAlpha(30) ?? Colors.transparent,
-                border: Border.all(
-                  color: profile?.avatarColor ?? DeepGuardColors.primary,
-                  width: 2.5,
-                ),
-                image: hasRealPic
-                    ? DecorationImage(
-                        image: FileImage(File(picPath)),
-                        fit: BoxFit.cover,
-                      )
-                    : null,
-              ),
-              child: hasRealPic
-                  ? null
-                  : Icon(
-                      profile?.avatarIcon ?? Icons.person,
-                      color: profile?.avatarColor ?? DeepGuardColors.primary,
-                      size: 32,
-                    ),
-            ),
-            // Camera badge
-            Positioned(
-              bottom: 0, right: 0,
-              child: Container(
-                width: 22, height: 22,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: DeepGuardColors.primary,
-                  border: Border.all(color: const Color(0xFF060918), width: 2),
-                ),
-                child: const Icon(Icons.camera_alt,
-                    size: 12, color: Colors.black),
-              ),
-            ),
-          ]),
-        ),
-        const SizedBox(width: 16),
-        // Name + edit
-        Expanded(
-          child: _editingName
-              ? Row(children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _nameCtrl,
-                      autofocus: true,
-                      style: const TextStyle(
-                          color: DeepGuardColors.textPrimary,
-                          fontSize: 18, fontWeight: FontWeight.w800),
-                      decoration: const InputDecoration(
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(
-                            horizontal: 0, vertical: 4),
-                        border: UnderlineInputBorder(
-                          borderSide: BorderSide(
-                              color: DeepGuardColors.primary)),
-                        focusedBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(
-                              color: DeepGuardColors.primary, width: 2)),
-                        enabledBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(
-                              color: DeepGuardColors.primary)),
-                      ),
-                      onSubmitted: (_) => _saveName(),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.check,
-                        color: DeepGuardColors.authentic, size: 20),
-                    onPressed: _saveName,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ])
-              : Row(children: [
-                  Expanded(
-                    child: Text(
-                      profile?.name ?? 'User',
-                      style: const TextStyle(
-                          color: DeepGuardColors.textPrimary,
-                          fontSize: 20, fontWeight: FontWeight.w900),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: _startEditName,
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: Icon(Icons.edit_outlined,
-                          color: DeepGuardColors.primary.withAlpha(160),
-                          size: 18),
-                    ),
-                  ),
-                ]),
-        ),
-      ]),
-    );
-  }
-
-  // ── Stats ──────────────────────────────────────────────────────────────────
-  // TOTAL / FAKE / REAL / FAKE% are derived directly from the visible history
-  // records, so they always stay in sync with the list — adding, swipe-deleting
-  // a single entry, or Clear All automatically recomputes the numbers. A stored
-  // counter can never drift from the records it is meant to summarise.
-  Widget _buildStatsRow(UserProfile? p) {
-    if (p == null) return const SizedBox.shrink();
-    final total = _history.length;
-    final fake = _history.where((e) => e.detectionResult == 'manipulated').length;
-    final real = _history.where((e) => e.detectionResult == 'authentic').length;
-    final fakePct = total == 0 ? 0.0 : (fake / total) * 100;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-      child: Row(children: [
-        _statTile('TOTAL', total.toString(), DeepGuardColors.primary),
-        const SizedBox(width: 8),
-        _statTile('FAKE', fake.toString(), DeepGuardColors.fake),
-        const SizedBox(width: 8),
-        _statTile('REAL', real.toString(), DeepGuardColors.authentic),
-        const SizedBox(width: 8),
-        _statTile('FAKE%', '${fakePct.toStringAsFixed(0)}%',
-            DeepGuardColors.warning),
-      ]),
-    );
-  }
-
   Future<void> _confirmClearAll() async {
     final profile = _svc.activeProfile;
     if (profile == null) return;
+    final palette = DeepGuardPalette.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF0D1035),
-        title: const Text('Clear All History',
-            style: TextStyle(color: DeepGuardColors.textPrimary,
-                fontSize: 16, fontWeight: FontWeight.w700)),
+      builder: (dlgCtx) => AlertDialog(
+        title: const Text('Clear All History'),
         content: Text(
-          'Remove all ${_history.length} record(s) and reset your statistics '
-          '(total / real / fake)?\nThis cannot be undone.',
-          style: const TextStyle(
-              color: DeepGuardColors.textSecondary, fontSize: 13, height: 1.4)),
+          'Remove all ${_history.length} saved record(s) and reset your summary counts? This action cannot be undone.',
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel',
-                style: TextStyle(color: DeepGuardColors.textMuted)),
+            onPressed: () => Navigator.pop(dlgCtx, false),
+            child: const Text('Cancel'),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Clear All',
-                style: TextStyle(color: DeepGuardColors.fakeText,
-                    fontWeight: FontWeight.w700)),
+          FilledButton(
+            onPressed: () => Navigator.pop(dlgCtx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: palette.dangerButton,
+              foregroundColor: palette.onDangerButton,
+            ),
+            child: const Text('Clear All'),
           ),
         ],
       ),
     );
     if (confirmed != true) return;
-    // Clear the records; the TOTAL/FAKE/REAL tiles are derived from history, so
-    // they recompute to zero automatically on the next build.
     await _svc.clearHistory(profile.id);
     await _loadHistory();
     if (mounted) setState(() {});
   }
 
-  /// History body — always scrollable so the RefreshIndicator can be triggered
-  /// even while loading or when the list is empty.
-  Widget _buildHistoryBody() {
-    if (_loading) {
-      return _scrollableFill(
-          const CircularProgressIndicator(color: DeepGuardColors.primary));
-    }
-    if (_history.isEmpty) {
-      return _scrollableFill(_buildEmptyHistory());
-    }
-    return _buildHistoryList();
-  }
-
-  Widget _scrollableFill(Widget child) => LayoutBuilder(
-        builder: (context, constraints) => SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: Center(child: child),
-          ),
-        ),
-      );
-
-  Widget _statTile(String label, String value, Color accent) => Expanded(
-    child: Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: accent.withAlpha(50)),
-        color: accent.withAlpha(10),
-      ),
-      child: Column(children: [
-        Text(value, style: TextStyle(color: accent, fontSize: 16,
-            fontWeight: FontWeight.w900)),
-        // Solid accent, not accent.withAlpha(180): dimming the label had put
-        // it near 2:1. The four accents this is called with — primary, fake,
-        // authentic, warning — all clear 4.5:1 against the page background at
-        // full strength, which is the surface these tiles sit on.
-        Text(label, style: TextStyle(color: accent,
-            fontSize: 11, fontWeight: FontWeight.w700,
-            letterSpacing: 1, fontFamily: 'monospace')),
-      ]),
-    ),
-  );
-
-  // ── Data backup row ────────────────────────────────────────────────────────
-  //
-  // Saves every profile + analysis record + provenance snapshot to one JSON
-  // file the user can keep, and restores it later (e.g. after reinstalling the
-  // app, which wipes local storage). On-device only: no upload, no server.
-  Widget _buildBackupRow() => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        Expanded(child: _BackupBtn(
-            icon: _busyBackup
-                ? Icons.hourglass_empty_rounded
-                : Icons.upload_file_rounded,
-            label: 'EXPORT DATA',
-            accent: DeepGuardColors.primary,
-            enabled: !_busyBackup,
-            onTap: _exportBackup)),
-        const SizedBox(width: 8),
-        Expanded(child: _BackupBtn(
-            icon: _busyBackup
-                ? Icons.hourglass_empty_rounded
-                : Icons.restore_rounded,
-            label: 'RESTORE DATA',
-            accent: DeepGuardColors.secondary,
-            enabled: !_busyBackup,
-            onTap: _importBackup)),
-      ]),
-      const SizedBox(height: 6),
-      Text(
-        _busyBackup
-            ? 'Working on the backup file…'
-            : 'Export keeps your records in a file you own; restore reads it '
-                'back after a reinstall. Media files are not included.',
-        style: const TextStyle(
-            color: DeepGuardColors.textMuted,
-            fontSize: 11, height: 1.3, fontFamily: 'monospace'),
-      ),
-    ]),
-  );
-
-  // ── History header ─────────────────────────────────────────────────────────
-  Widget _buildHistoryHeader() => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-    child: Row(children: [
-      const Text('HISTORY',
-          style: TextStyle(color: DeepGuardColors.textMuted,
-              fontSize: 11, letterSpacing: 3,
-              fontWeight: FontWeight.w700, fontFamily: 'monospace')),
-      const Spacer(),
-      if (_history.isNotEmpty)
-        GestureDetector(
-          onTap: _confirmClearAll,
-          child: const Text('CLEAR ALL',
-              style: TextStyle(color: DeepGuardColors.fakeText,
-                  fontSize: 11, letterSpacing: 1, fontFamily: 'monospace')),
-        ),
-    ]),
-  );
-
-  Widget _buildEmptyHistory() => Column(mainAxisSize: MainAxisSize.min, children: [
-    Icon(Icons.history, color: DeepGuardColors.textMuted.withAlpha(80), size: 48),
-    const SizedBox(height: 12),
-    const Text('No analyses yet',
-        style: TextStyle(color: DeepGuardColors.textMuted, fontSize: 14)),
-    const SizedBox(height: 6),
-    Text('Analyse a photo or video to see history here',
-        style: TextStyle(color: DeepGuardColors.textMuted, fontSize: 13)),
-  ]);
-
-  /// History list, led by the provenance cross-check tally. It counts only the
-  /// records whose own metadata carried usable evidence about what they are,
-  /// and says so on its face — it is not, and must never be presented as, the
-  /// model's benchmark accuracy.
-  Widget _buildHistoryList() {
-    final showTally = _history.isNotEmpty;
-    final tally = OutcomeTally.from(_history.map((e) => e.outcome));
-    return ListView.separated(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
-      itemCount: _history.length + (showTally ? 1 : 0),
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (_, i) => showTally && i == 0
-          ? _OutcomeTallyCard(tally: tally)
-          : _historyTile(_history[showTally ? i - 1 : i]),
-    );
-  }
-
-  Widget _historyTile(HistoryEntry entry) {
-    return Dismissible(
-        key: Key(entry.id),
-        direction: DismissDirection.endToStart,
-        background: Container(
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 20),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            color: DeepGuardColors.fake.withAlpha(30),
-            border: Border.all(color: DeepGuardColors.fake.withAlpha(60)),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.delete_outline,
-                  color: DeepGuardColors.fake, size: 20),
-              SizedBox(width: 6),
-              Text('DELETE',
-                  style: TextStyle(
-                      color: DeepGuardColors.fakeText, fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1, fontFamily: 'monospace')),
-            ],
-          ),
-        ),
-        confirmDismiss: (_) async {
-          return await _confirmDeleteEntry(entry);
-        },
-        onDismissed: (_) async {
-          final profile = _svc.activeProfile;
-          if (profile == null) return;
-          await _svc.deleteHistoryEntry(profile.id, entry.id);
-        },
-        child: _HistoryTile(
-            entry: entry, onTap: () => _onHistoryTap(entry)),
-    );
-  }
-
   Future<bool> _confirmDeleteEntry(HistoryEntry entry) async {
+    final palette = DeepGuardPalette.of(context);
     final result = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: const Color(0xFF0D1035),
-        title: const Text('Delete Entry',
-            style: TextStyle(color: DeepGuardColors.textPrimary,
-                fontSize: 16, fontWeight: FontWeight.w700)),
+      builder: (dlgCtx) => AlertDialog(
+        title: const Text('Delete Record'),
         content: Text(
-          'Remove "${entry.fileName}" from history?\nThis cannot be undone.',
-          style: const TextStyle(
-              color: DeepGuardColors.textSecondary, fontSize: 13,
-              height: 1.4)),
+          'Remove "${entry.fileName}" from your history? This cannot be undone.',
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel',
-                style: TextStyle(color: DeepGuardColors.textMuted)),
+            onPressed: () => Navigator.pop(dlgCtx, false),
+            child: const Text('Cancel'),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete',
-                style: TextStyle(color: DeepGuardColors.fakeText,
-                    fontWeight: FontWeight.w700)),
+          FilledButton(
+            onPressed: () => Navigator.pop(dlgCtx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: palette.dangerButton,
+              foregroundColor: palette.onDangerButton,
+            ),
+            child: const Text('Delete'),
           ),
         ],
       ),
     );
     return result ?? false;
   }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = DeepGuardPalette.of(context);
+    final profile = _svc.activeProfile;
+    final showTally = _history.isNotEmpty;
+    final tally = OutcomeTally.from(_history.map((e) => e.outcome));
+
+    return Scaffold(
+      backgroundColor: palette.backgroundSecondary,
+      appBar: const DeepGuardAppBar(title: 'Settings & History'),
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _loadHistory,
+          color: palette.primaryButton,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    _buildThemeCard(palette),
+                    const SizedBox(height: 16),
+                    _buildProfileCard(profile, palette),
+                    const SizedBox(height: 16),
+                    if (profile != null) ...[
+                      _buildStatsSection(palette),
+                      const SizedBox(height: 16),
+                    ],
+                    _buildBackupCard(palette),
+                    const SizedBox(height: 20),
+                    _buildHistoryHeader(palette),
+                    if (showTally) ...[
+                      const SizedBox(height: 8),
+                      _OutcomeTallyCard(tally: tally),
+                      const SizedBox(height: 10),
+                    ],
+                  ]),
+                ),
+              ),
+              if (_loading)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      color: palette.processingStatus,
+                    ),
+                  ),
+                )
+              else if (_history.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
+                    child: _buildEmptyHistory(palette),
+                  ),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+                  sliver: SliverList.separated(
+                    itemCount: _history.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (_, index) => _historyTile(
+                      _history[index],
+                      palette,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Theme Selector Card (Light / Dark / System Default) ────────────────────
+  Widget _buildThemeCard(DeepGuardPalette palette) {
+    return ListenableBuilder(
+      listenable: _themeSvc,
+      builder: (context, _) {
+        final mode = _themeSvc.themeMode;
+        return GlassCard(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Semantics(
+                header: true,
+                child: Row(
+                  children: [
+                    ExcludeSemantics(
+                      child: Icon(
+                        Icons.palette_outlined,
+                        color: palette.primaryText,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Appearance Theme',
+                        style: TextStyle(
+                          color: palette.textPrimary,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Updates immediately and saves your preference across sessions.',
+                style: TextStyle(
+                  color: palette.textSecondary,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 14),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final textScale =
+                      MediaQuery.textScalerOf(context).scale(1.0);
+                  final useVerticalChoices =
+                      constraints.maxWidth < 275 || textScale > 1.25;
+
+                  if (useVerticalChoices) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _ThemeChoiceButton(
+                          label: 'Light Mode',
+                          icon: Icons.light_mode_outlined,
+                          selected: mode == ThemeMode.light,
+                          onTap: () => _themeSvc.setThemeMode(ThemeMode.light),
+                          palette: palette,
+                        ),
+                        const SizedBox(height: 8),
+                        _ThemeChoiceButton(
+                          label: 'Dark Mode',
+                          icon: Icons.dark_mode_outlined,
+                          selected: mode == ThemeMode.dark,
+                          onTap: () => _themeSvc.setThemeMode(ThemeMode.dark),
+                          palette: palette,
+                        ),
+                        const SizedBox(height: 8),
+                        _ThemeChoiceButton(
+                          label: 'System Default',
+                          icon: Icons.brightness_auto_outlined,
+                          selected: mode == ThemeMode.system,
+                          onTap: () => _themeSvc.setThemeMode(ThemeMode.system),
+                          palette: palette,
+                        ),
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: _ThemeChoiceButton(
+                          label: 'Light',
+                          semanticLabel: 'Light Mode',
+                          icon: Icons.light_mode_outlined,
+                          selected: mode == ThemeMode.light,
+                          onTap: () => _themeSvc.setThemeMode(ThemeMode.light),
+                          palette: palette,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _ThemeChoiceButton(
+                          label: 'Dark',
+                          semanticLabel: 'Dark Mode',
+                          icon: Icons.dark_mode_outlined,
+                          selected: mode == ThemeMode.dark,
+                          onTap: () => _themeSvc.setThemeMode(ThemeMode.dark),
+                          palette: palette,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _ThemeChoiceButton(
+                          label: 'System',
+                          semanticLabel: 'System Default',
+                          icon: Icons.brightness_auto_outlined,
+                          selected: mode == ThemeMode.system,
+                          onTap: () => _themeSvc.setThemeMode(ThemeMode.system),
+                          palette: palette,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ── Profile Card ───────────────────────────────────────────────────────────
+  Widget _buildProfileCard(UserProfile? profile, DeepGuardPalette palette) {
+    final picPath = profile?.profilePicturePath;
+    final hasRealPic = picPath != null && File(picPath).existsSync();
+
+    return GlassCard(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Semantics(
+            button: true,
+            label: 'Change profile picture',
+            child: InkWell(
+              onTap: _pickProfilePicture,
+              customBorder: const CircleBorder(),
+              child: ExcludeSemantics(
+                child: Stack(
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: palette.processingContainer,
+                        border: Border.all(
+                          color: palette.primaryButton,
+                          width: 2,
+                        ),
+                        image: hasRealPic
+                            ? DecorationImage(
+                                image: FileImage(File(picPath)),
+                                fit: BoxFit.cover,
+                              )
+                            : null,
+                      ),
+                      child: hasRealPic
+                          ? null
+                          : Icon(
+                              profile?.avatarIcon ?? Icons.person_rounded,
+                              color: palette.primaryText,
+                              size: 30,
+                            ),
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: palette.primaryButton,
+                          border: Border.all(color: palette.surface, width: 2),
+                        ),
+                        child: Icon(
+                          Icons.camera_alt_rounded,
+                          size: 13,
+                          color: palette.onPrimaryButton,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: _editingName
+                ? Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _nameCtrl,
+                          autofocus: true,
+                          style: TextStyle(
+                            color: palette.textPrimary,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          decoration: const InputDecoration(
+                            labelText: 'Profile Name',
+                            isDense: true,
+                          ),
+                          onSubmitted: (_) => _saveName(),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: Icon(
+                          Icons.check_rounded,
+                          color: palette.successText,
+                        ),
+                        tooltip: 'Save profile name',
+                        onPressed: _saveName,
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              profile?.name ?? 'User',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: palette.textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Local Device Profile',
+                              style: TextStyle(
+                                color: palette.textMuted,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: _startEditName,
+                        tooltip: 'Edit profile name',
+                        icon: Icon(
+                          Icons.edit_outlined,
+                          color: palette.primaryText,
+                          size: 20,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Summary Statistics ─────────────────────────────────────────────────────
+  Widget _buildStatsSection(DeepGuardPalette palette) {
+    final total = _history.length;
+    final aiCount =
+        _history.where((e) => e.detectionResult == 'manipulated').length;
+    final realCount =
+        _history.where((e) => e.detectionResult == 'authentic').length;
+    final aiPct = total == 0 ? 0.0 : (aiCount / total) * 100;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+        final useTwoByTwo = constraints.maxWidth < 360 || textScale > 1.2;
+
+        final tiles = [
+          _StatTile(
+            label: 'Total',
+            value: '$total',
+            color: palette.primaryText,
+            palette: palette,
+          ),
+          _StatTile(
+            label: 'REAL',
+            value: '$realCount',
+            color: palette.realText,
+            palette: palette,
+          ),
+          _StatTile(
+            label: 'A.I.',
+            value: '$aiCount',
+            color: palette.aiText,
+            palette: palette,
+          ),
+          _StatTile(
+            label: 'A.I. Share',
+            value: '${aiPct.toStringAsFixed(0)}%',
+            color: palette.warningText,
+            palette: palette,
+          ),
+        ];
+
+        if (useTwoByTwo) {
+          return Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(child: tiles[0]),
+                  const SizedBox(width: 8),
+                  Expanded(child: tiles[1]),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(child: tiles[2]),
+                  const SizedBox(width: 8),
+                  Expanded(child: tiles[3]),
+                ],
+              ),
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(child: tiles[0]),
+            const SizedBox(width: 8),
+            Expanded(child: tiles[1]),
+            const SizedBox(width: 8),
+            Expanded(child: tiles[2]),
+            const SizedBox(width: 8),
+            Expanded(child: tiles[3]),
+          ],
+        );
+      },
+    );
+  }
+
+  // ── Backup Card ────────────────────────────────────────────────────────────
+  Widget _buildBackupCard(DeepGuardPalette palette) {
+    return GlassCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Semantics(
+            header: true,
+            child: Text(
+              'Evidence Backup & Restore (ZIP)',
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _busyBackup
+                ? 'Packaging or extracting ZIP evidence archive…'
+                : 'Export saved results with their analyzed image and video evidence as a portable ZIP archive, or restore them on any device.',
+            style: TextStyle(
+              color: palette.textSecondary,
+              fontSize: 13.5,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+              final stackButtons =
+                  constraints.maxWidth < 275 || textScale > 1.25;
+
+              final exportBtn = OutlinedButton.icon(
+                onPressed: _busyBackup ? null : _exportBackup,
+                icon: const Icon(Icons.folder_zip_outlined, size: 18),
+                label: const Text('Export ZIP'),
+              );
+              final restoreBtn = OutlinedButton.icon(
+                onPressed: _busyBackup ? null : _importBackup,
+                icon: const Icon(Icons.restore_rounded, size: 18),
+                label: const Text('Restore ZIP'),
+              );
+
+              if (stackButtons) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    exportBtn,
+                    const SizedBox(height: 8),
+                    restoreBtn,
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: exportBtn),
+                  const SizedBox(width: 10),
+                  Expanded(child: restoreBtn),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryHeader(DeepGuardPalette palette) {
+    return Row(
+      children: [
+        Expanded(
+          child: Semantics(
+            header: true,
+            child: Text(
+              'Analysis History',
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+        if (_history.isNotEmpty)
+          TextButton.icon(
+            onPressed: _confirmClearAll,
+            icon: Icon(
+              Icons.delete_sweep_outlined,
+              size: 18,
+              color: palette.errorText,
+            ),
+            label: Text(
+              'Clear All',
+              style: TextStyle(color: palette.errorText),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyHistory(DeepGuardPalette palette) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ExcludeSemantics(
+            child: Icon(
+              Icons.history_rounded,
+              color: palette.textMuted,
+              size: 46,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'No saved analyses yet',
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Analyze an image or video to build your local history.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: palette.textSecondary,
+              fontSize: 14,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _historyTile(HistoryEntry entry, DeepGuardPalette palette) {
+    return Dismissible(
+      key: Key(entry.id),
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          color: palette.errorContainer,
+          border: Border.all(color: palette.error),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.delete_outline_rounded, color: palette.errorText),
+            const SizedBox(width: 6),
+            Text(
+              'Delete',
+              style: TextStyle(
+                color: palette.errorText,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+      confirmDismiss: (_) => _confirmDeleteEntry(entry),
+      onDismissed: (_) async {
+        final profile = _svc.activeProfile;
+        if (profile == null) return;
+        await _svc.deleteHistoryEntry(profile.id, entry.id);
+      },
+      child: _HistoryTile(
+        entry: entry,
+        onTap: () => _onHistoryTap(entry),
+      ),
+    );
+  }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// History widgets
-// ─────────────────────────────────────────────────────────────────────────────
+class _ThemeChoiceButton extends StatelessWidget {
+  final String label;
+  final String? semanticLabel;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+  final DeepGuardPalette palette;
 
-/// The confusion-matrix tally built from each record's own file evidence.
-///
-/// Carries its denominator and its limitation in the same box: these are
-/// cross-checks against metadata embedded in the files on this device, not the
-/// held-out test set, and the two numbers must never be quoted as one another.
+  const _ThemeChoiceButton({
+    required this.label,
+    this.semanticLabel,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+    required this.palette,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: semanticLabel ?? label,
+      child: Material(
+        color: selected ? palette.primaryButton : palette.backgroundSecondary,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: selected ? palette.primaryButton : palette.controlBorder,
+                width: selected ? 1.5 : 1.1,
+              ),
+            ),
+            child: ExcludeSemantics(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    icon,
+                    size: 18,
+                    color: selected
+                        ? palette.onPrimaryButton
+                        : palette.textSecondary,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      label,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: selected
+                            ? palette.onPrimaryButton
+                            : palette.textPrimary,
+                        fontSize: 14,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatTile extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  final DeepGuardPalette palette;
+
+  const _StatTile({
+    required this.label,
+    required this.value,
+    required this.color,
+    required this.palette,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GlassCard(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+      child: Semantics(
+        label: '$label: $value',
+        child: ExcludeSemantics(
+          child: Column(
+            children: [
+              Text(
+                value,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: palette.textSecondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _OutcomeTallyCard extends StatelessWidget {
   final OutcomeTally tally;
   const _OutcomeTallyCard({required this.tally});
@@ -761,87 +1119,82 @@ class _OutcomeTallyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = DeepGuardPalette.of(context);
     final values = [
       tally.truePositive,
       tally.trueNegative,
       tally.falsePositive,
       tally.falseNegative,
     ];
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: DeepGuardColors.glassBorder),
-        color: DeepGuardColors.surfaceCard.withAlpha(60),
-      ),
+    return GlassCard(
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: const [
-            Text('PROVENANCE CROSS-CHECK',
-                style: TextStyle(color: DeepGuardColors.textSecondary,
-                    fontSize: 11, letterSpacing: 2,
-                    fontWeight: FontWeight.w700, fontFamily: 'monospace')),
-            Spacer(),
-          ]),
+          Text(
+            'Provenance Cross-Check Summary',
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 4),
           Text(
             tally.isEmpty
-                ? 'No record here carries metadata the cross-check can use. '
-                    'That is the normal case — most files have none.'
-                : '${tally.evidenced} of your records carried usable file '
-                    'evidence. The rest said nothing either way.',
-            // Solid textMuted at 11px. It was textMuted.withAlpha(200) at 10px,
-            // which measured 2.04:1 — the footnote nobody could read.
-            style: const TextStyle(
-                color: DeepGuardColors.textMuted,
-                fontSize: 11, height: 1.4),
+                ? 'No saved records contain embedded generator or camera tags for cross-checking yet.'
+                : '${tally.evidenced} saved record(s) contained embedded metadata for comparison.',
+            style: TextStyle(
+              color: palette.textSecondary,
+              fontSize: 13.5,
+              height: 1.4,
+            ),
           ),
           const SizedBox(height: 10),
-          Row(children: [
-            for (var i = 0; i < _cells.length; i++) ...[
-              if (i > 0) const SizedBox(width: 6),
-              Expanded(
-                child: Tooltip(
-                  message: _cells[i].$2,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(6),
-                      color: DeepGuardColors.surfaceDark.withAlpha(120),
-                      border: Border.all(
-                          color: DeepGuardColors.glassBorder),
+          Row(
+            children: [
+              for (var i = 0; i < _cells.length; i++) ...[
+                if (i > 0) const SizedBox(width: 6),
+                Expanded(
+                  child: Semantics(
+                    label: '${_cells[i].$2}: ${values[i]}',
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        color: palette.backgroundSecondary,
+                        border: Border.all(color: palette.border),
+                      ),
+                      child: ExcludeSemantics(
+                        child: Column(
+                          children: [
+                            Text(
+                              '${values[i]}',
+                              style: TextStyle(
+                                color: values[i] > 0
+                                    ? palette.textPrimary
+                                    : palette.textMuted,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _cells[i].$1,
+                              style: TextStyle(
+                                color: palette.textSecondary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                    child: Column(children: [
-                      Text('${values[i]}',
-                          style: TextStyle(
-                              color: values[i] > 0
-                                  ? DeepGuardColors.textPrimary
-                                  : DeepGuardColors.textMuted,
-                              fontSize: 15, fontWeight: FontWeight.w800,
-                              fontFamily: 'monospace')),
-                      const SizedBox(height: 2),
-                      Text(_cells[i].$1,
-                          style: const TextStyle(
-                              color: DeepGuardColors.textMuted,
-                              fontSize: 11, letterSpacing: 1,
-                              fontFamily: 'monospace')),
-                    ]),
                   ),
                 ),
-              ),
+              ],
             ],
-          ]),
-          const SizedBox(height: 8),
-          Text(
-            'FP = False-Manipulated · FN = False-Authentic. Derived from '
-            'metadata embedded in each file, which attributes the tool that '
-            'wrote it. Not the model\'s benchmark accuracy '
-            '(Image 84.82% / Video 71.67%), which comes from the '
-            'held-out test set.',
-            style: const TextStyle(
-                color: DeepGuardColors.textMuted,
-                fontSize: 11, height: 1.4),
           ),
         ],
       ),
@@ -855,233 +1208,207 @@ class _HistoryTile extends StatelessWidget {
   const _HistoryTile({required this.entry, required this.onTap});
 
   @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: entry.resultColor.withAlpha(40)),
-        color: entry.resultColor.withAlpha(8),
-      ),
-      child: Row(children: [
-        Container(
-          width: 40, height: 40,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            color: DeepGuardColors.surfaceCard,
-          ),
-          child: Icon(
-            entry.isImage ? Icons.image_outlined : Icons.videocam_outlined,
-            color: DeepGuardColors.primary, size: 20,
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(entry.fileName,
-                style: const TextStyle(color: DeepGuardColors.textPrimary,
-                    fontSize: 13, fontWeight: FontWeight.w600),
-                overflow: TextOverflow.ellipsis, maxLines: 1),
-            const SizedBox(height: 3),
-            Text(entry.formattedDate,
-                style: const TextStyle(color: DeepGuardColors.textMuted,
-                    fontSize: 11, fontFamily: 'monospace')),
-            if (!entry.fileExists)
-              const Text('File unavailable',
-                  style: TextStyle(color: DeepGuardColors.warning,
-                      fontSize: 11)),
-            // The cross-check position, if the file's own metadata evidenced
-            // one. Neutral grey on purpose: this is a note about the verdict,
-            // not a verdict.
-            if (entry.outcome != null)
-              Text(
-                '${entry.outcome!.shortCode} · ${entry.outcome!.uiTag}',
-                style: const TextStyle(
-                    color: DeepGuardColors.textSecondary,
-                    fontSize: 11, fontFamily: 'monospace'),
-              ),
-          ],
-        )),
-        const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(6),
-            color: entry.resultColor.withAlpha(20),
-            border: Border.all(color: entry.resultColor.withAlpha(80)),
-          ),
-          child: Column(children: [
-            Text(entry.resultLabel,
-                style: TextStyle(color: entry.resultTextColor, fontSize: 11,
-                    fontWeight: FontWeight.w800, fontFamily: 'monospace')),
-            // Same hue at full strength, lighter by weight instead of by
-            // alpha: the old withAlpha(180) at 9px sat under 2:1 on this chip.
-            Text('${entry.confidencePercent.toStringAsFixed(0)}%',
-                style: TextStyle(color: entry.resultTextColor,
-                    fontSize: 11, fontWeight: FontWeight.w400,
-                    fontFamily: 'monospace')),
-          ]),
-        ),
-      ]),
-    ),
-  );
-}
-
-class _HistoryActionSheet extends StatelessWidget {
-  final HistoryEntry entry;
-  final VoidCallback onViewResult;
-  final VoidCallback onReanalyse;
-  const _HistoryActionSheet({
-    required this.entry,
-    required this.onViewResult,
-    required this.onReanalyse,
-  });
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.all(24),
-    child: Column(mainAxisSize: MainAxisSize.min, children: [
-      Container(width: 36, height: 4,
-          decoration: BoxDecoration(color: DeepGuardColors.textMuted.withAlpha(80),
-              borderRadius: BorderRadius.circular(2))),
-      const SizedBox(height: 16),
-      Text(entry.fileName,
-          style: const TextStyle(color: DeepGuardColors.textPrimary,
-              fontSize: 14, fontWeight: FontWeight.w700),
-          overflow: TextOverflow.ellipsis),
-      const SizedBox(height: 6),
-      Text(entry.formattedDate,
-          style: const TextStyle(color: DeepGuardColors.textMuted, fontSize: 11)),
-      const SizedBox(height: 20),
-      _SheetBtn(icon: Icons.analytics_outlined,
-          label: 'View Stored Result',
-          accent: DeepGuardColors.primary, onTap: onViewResult),
-      const SizedBox(height: 10),
-      _SheetBtn(icon: Icons.refresh_outlined,
-          label: 'Re-Analyse File',
-          accent: DeepGuardColors.secondary, onTap: onReanalyse),
-      const SizedBox(height: 8),
-    ]),
-  );
-}
-
-class _SheetBtn extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color accent;
-  final VoidCallback onTap;
-  const _SheetBtn({required this.icon, required this.label,
-      required this.accent, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      width: double.infinity, height: 50,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: accent.withAlpha(80)),
-        color: accent.withAlpha(15),
-      ),
-      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(icon, color: accent, size: 18),
-        const SizedBox(width: 10),
-        Text(label, style: TextStyle(color: accent, fontSize: 13,
-            fontWeight: FontWeight.w700, letterSpacing: 0.5)),
-      ]),
-    ),
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Compact action button used by the data-backup row (export / restore).
-// ─────────────────────────────────────────────────────────────────────────────
-class _BackupBtn extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color accent;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  const _BackupBtn({
-    required this.icon,
-    required this.label,
-    required this.accent,
-    required this.onTap,
-    this.enabled = true,
-  });
-
-  @override
   Widget build(BuildContext context) {
-    final alpha = enabled ? 1.0 : 0.45;
-    return GestureDetector(
-      onTap: enabled ? onTap : null,
-      child: Container(
-        height: 38,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: accent.withAlpha((80 * alpha).round())),
-          color: accent.withAlpha((15 * alpha).round()),
-        ),
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            // Full accent when enabled. The 220/230 alphas were a *constant*
-            // dim, not a disabled state, and secondary at 230 over its own
-            // tinted fill sat under the AA floor on a normal, usable button.
-            Icon(icon, color: enabled ? accent : accent.withAlpha(100),
-                size: 15),
-            const SizedBox(width: 8),
-            Text(label,
-                style: TextStyle(
-                    color: enabled ? accent : accent.withAlpha(104),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.8,
-                    fontFamily: 'monospace')),
-          ]),
+    final palette = DeepGuardPalette.of(context);
+    final badgeText = entry.resultTextColorFor(palette);
+    final badgeBg = entry.resultContainerFor(palette);
+    final badgeBorder = entry.resultColorFor(palette);
+
+    return GlassCard(
+      padding: const EdgeInsets.all(14),
+      onTap: onTap,
+      semanticLabel:
+          '${entry.fileName}, ${entry.isImage ? "Image" : "Video"}, '
+          'classified as ${entry.resultLabel}, '
+          'model confidence ${entry.confidencePercent.toStringAsFixed(0)} percent, '
+          '${entry.formattedDate}. Activate for options.',
+      child: ExcludeSemantics(
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                color: badgeBg,
+              ),
+              child: Icon(
+                entry.isImage ? Icons.image_outlined : Icons.videocam_outlined,
+                color: badgeText,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    entry.fileName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: palette.textPrimary,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    entry.formattedDate,
+                    style: TextStyle(
+                      color: palette.textMuted,
+                      fontSize: 13,
+                    ),
+                  ),
+                  if (entry.fileExists)
+                    Text(
+                      '${entry.isImage ? "Image" : "Video"} evidence retained',
+                      style: TextStyle(
+                        color: palette.accentText,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    )
+                  else
+                    Text(
+                      'Media evidence unavailable',
+                      style: TextStyle(
+                        color: palette.warningText,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  if (entry.outcome != null)
+                    Text(
+                      '${entry.outcome!.shortCode} · ${entry.outcome!.uiTag}',
+                      style: TextStyle(
+                        color: palette.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                color: badgeBg,
+                border: Border.all(color: badgeBorder.withValues(alpha: 0.55)),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(entry.resultIcon, size: 15, color: badgeText),
+                      const SizedBox(width: 4),
+                      Text(
+                        entry.resultLabel,
+                        style: TextStyle(
+                          color: badgeText,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${entry.confidencePercent.toStringAsFixed(0)}%',
+                    style: TextStyle(
+                      color: badgeText,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Hex background painter
-// ─────────────────────────────────────────────────────────────────────────────
-class _HexBgPainter extends CustomPainter {
-  final double t;
-  const _HexBgPainter({required this.t});
+class _HistoryActionSheet extends StatelessWidget {
+  final HistoryEntry entry;
+  final VoidCallback onViewResult;
+  final VoidCallback onReanalyse;
+  final VoidCallback onDelete;
+
+  const _HistoryActionSheet({
+    required this.entry,
+    required this.onViewResult,
+    required this.onReanalyse,
+    required this.onDelete,
+  });
+
   @override
-  void paint(Canvas canvas, Size s) {
-    const r = 26.0;
-    const h = r * 1.7320508;
-    const colW = r * 1.5;
-    final cols = (s.width / colW).ceil() + 2;
-    final rows = (s.height / h).ceil() + 2;
-    final p = Paint()..style = PaintingStyle.stroke..strokeWidth = 0.6;
-    for (int col = -1; col < cols; col++) {
-      for (int row = -1; row < rows; row++) {
-        final cx = col * colW;
-        final cy = row * h + (col.isOdd ? h / 2 : 0);
-        final phase = cx * 0.007 + cy * 0.005 + t * 2 * 3.14159;
-        final alpha = (sin(phase) * 0.5 + 0.5) * 16 + 4;
-        p.color = DeepGuardColors.primary.withAlpha(alpha.toInt());
-        final path = Path();
-        for (int i = 0; i < 6; i++) {
-          final a = 3.14159 / 3 * i - 3.14159 / 6;
-          final x = cx + r * cos(a);
-          final y = cy + r * sin(a);
-          i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
-        }
-        path.close();
-        canvas.drawPath(path, p);
-      }
-    }
+  Widget build(BuildContext context) {
+    final palette = DeepGuardPalette.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Semantics(
+              header: true,
+              child: Text(
+                entry.fileName,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: palette.textPrimary,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${entry.resultLabel} · ${entry.formattedDate}',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: palette.textSecondary,
+                fontSize: 13.5,
+              ),
+            ),
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: onViewResult,
+              icon: const Icon(Icons.fact_check_outlined, size: 19),
+              label: const Text('View Saved Result'),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: onReanalyse,
+              icon: const Icon(Icons.refresh_rounded, size: 19),
+              label: const Text('Re-Analyze Media'),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: onDelete,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: palette.errorText,
+                side: BorderSide(color: palette.error, width: 1.2),
+              ),
+              icon: Icon(
+                Icons.delete_outline_rounded,
+                size: 19,
+                color: palette.errorText,
+              ),
+              label: const Text('Delete Record'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
-  @override
-  bool shouldRepaint(_HexBgPainter o) => o.t != t;
 }

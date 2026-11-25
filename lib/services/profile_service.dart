@@ -1,9 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_profile.dart';
 import '../models/history_entry.dart';
 import '../models/provenance_snapshot.dart';
+import 'evidence_vault_service.dart';
 
 /// Manages user profiles and per-profile analysis history.
 /// All data is stored locally using SharedPreferences (JSON).
@@ -56,11 +58,11 @@ class ProfileService extends ChangeNotifier {
   }
 
   Future<void> _loadProfiles() async {
+    _profiles.clear();
     final raw = _prefs!.getString(_profilesKey);
     if (raw == null) return;
     try {
       final list = jsonDecode(raw) as List<dynamic>;
-      _profiles.clear();
       for (final item in list) {
         _profiles.add(UserProfile.fromJson(item as Map<String, dynamic>));
       }
@@ -125,10 +127,12 @@ class ProfileService extends ChangeNotifier {
 
   Future<void> deleteProfile(String id) async {
     if (_profiles.length <= 1) return; // never delete the last profile
+    final removedEntries = await getHistory(id);
     _profiles.removeWhere((p) => p.id == id);
     await _saveProfiles();
     // Clear history for this profile
     await _prefs!.remove('$_historyPrefix$id');
+    await _pruneUnreferencedEvidence(removedEntries.map((e) => e.id));
     // If deleted profile was active, switch to first available
     if (_activeId == id) {
       await setActiveProfile(_profiles.first.id);
@@ -167,8 +171,21 @@ class ProfileService extends ChangeNotifier {
 
   Future<void> saveHistoryEntry(
       String profileId, HistoryEntry entry) async {
+    var entryToSave = entry;
+    if (entry.filePath != null && File(entry.filePath!).existsSync()) {
+      final origName = entry.fileName;
+      final retainedPath = await EvidenceVaultService().retainFileForEntry(
+        entryId: entry.id,
+        sourcePath: entry.filePath!,
+        preferredFileName: origName,
+      );
+      entryToSave = entry.copyWith(
+        filePath: retainedPath,
+        originalFileName: entry.originalFileName ?? origName,
+      );
+    }
     final existing = await getHistory(profileId);
-    existing.insert(0, entry); // newest first
+    existing.insert(0, entryToSave); // newest first
     final encoded = jsonEncode(existing.map((e) => e.toJson()).toList());
     await _prefs!.setString(_historyKey(profileId), encoded);
     notifyListeners();
@@ -195,8 +212,30 @@ class ProfileService extends ChangeNotifier {
     }
   }
 
+  Future<void> _pruneUnreferencedEvidence(Iterable<String> candidateIds) async {
+    final idsToCheck = candidateIds.toSet();
+    if (idsToCheck.isEmpty) return;
+
+    final stillReferenced = <String>{};
+    for (final p in _profiles) {
+      final h = await getHistory(p.id);
+      for (final e in h) {
+        stillReferenced.add(e.id);
+      }
+    }
+
+    final vault = EvidenceVaultService();
+    for (final id in idsToCheck) {
+      if (!stillReferenced.contains(id)) {
+        await vault.deleteEntryEvidence(id);
+      }
+    }
+  }
+
   Future<void> clearHistory(String profileId) async {
+    final existing = await getHistory(profileId);
     await _prefs!.remove(_historyKey(profileId));
+    await _pruneUnreferencedEvidence(existing.map((e) => e.id));
     notifyListeners();
   }
 
@@ -205,7 +244,30 @@ class ProfileService extends ChangeNotifier {
     entries.removeWhere((e) => e.id == entryId);
     final encoded = jsonEncode(entries.map((e) => e.toJson()).toList());
     await _prefs!.setString(_historyKey(profileId), encoded);
+    await _pruneUnreferencedEvidence([entryId]);
     notifyListeners();
+  }
+
+  /// Relinks an existing history entry's media path when a `.zip` Evidence
+  /// Archive restores missing image/video evidence for an already-saved record.
+  Future<bool> relinkHistoryMedia(
+    String profileId,
+    String entryId,
+    String newFilePath, {
+    String? originalFileName,
+  }) async {
+    final entries = await getHistory(profileId);
+    final idx = entries.indexWhere((e) => e.id == entryId);
+    if (idx == -1) return false;
+
+    entries[idx] = entries[idx].copyWith(
+      filePath: newFilePath,
+      originalFileName: originalFileName,
+    );
+    final encoded = jsonEncode(entries.map((e) => e.toJson()).toList());
+    await _prefs!.setString(_historyKey(profileId), encoded);
+    notifyListeners();
+    return true;
   }
 
   /// Attaches a provenance/source-trace snapshot to an existing history entry

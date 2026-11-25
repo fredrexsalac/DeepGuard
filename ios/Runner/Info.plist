@@ -45,8 +45,12 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<!-- Camera usage: capture photo/video for analysis via image_picker -->
+	<!-- Camera, microphone, and photo library usage via image_picker -->
 	<key>NSCameraUsageDescription</key>
-	<string>DeepGuard uses the camera to capture photos and videos for deepfake analysis.</string>
+	<string>DeepGuard uses the camera to capture photos and videos for authenticity analysis.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>DeepGuard uses the microphone when recording video clips for authenticity analysis.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>DeepGuard accesses your photo library so you can select images and videos for authenticity analysis.</string>
 </dict>
 </plist>

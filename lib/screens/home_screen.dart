@@ -1,67 +1,80 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import '../models/history_entry.dart';
+import '../models/prediction_result.dart';
+import '../services/profile_service.dart';
+import '../services/theme_service.dart';
 import '../theme/app_theme.dart';
-import 'about_screen.dart' show kDeepGuardVersion;
+import '../widgets/glass_card.dart';
+import 'result_screen.dart';
 
+/// DeepGuard Simplified Homepage (Phase 5 & WCAG 2.2 Level AA).
+///
+/// Focuses immediately on core media detection actions (Upload Image,
+/// Upload Video, Analyze Media) with readable typography, Light/Dark/System
+/// theme support, and zero model accuracy metrics on the homepage.
 class HomeScreen extends StatefulWidget {
   final VoidCallback onAnalyzeTap;
-  const HomeScreen({super.key, required this.onAnalyzeTap});
+  final VoidCallback? onUploadImageTap;
+  final VoidCallback? onUploadVideoTap;
+  final VoidCallback? onOpenHistoryTap;
+
+  const HomeScreen({
+    super.key,
+    required this.onAnalyzeTap,
+    this.onUploadImageTap,
+    this.onUploadVideoTap,
+    this.onOpenHistoryTap,
+  });
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with TickerProviderStateMixin {
-  late final AnimationController _hexCtrl;
-  late final AnimationController _pulseCtrl;
-  late final AnimationController _entryCtrl;
-  late final Animation<double> _entryFade;
-  late final Animation<Offset> _entrySlide;
-
-  // Realtime Wi-Fi / Internet connectivity
+class _HomeScreenState extends State<HomeScreen> {
   bool _isOnline = false;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  final ProfileService _profileService = ProfileService();
+  List<HistoryEntry> _recentEntries = const [];
 
   @override
   void initState() {
     super.initState();
-    _hexCtrl = AnimationController(
-        vsync: this, duration: const Duration(seconds: 10))..repeat();
-    _pulseCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1400))
-      ..repeat(reverse: true);
-    _entryCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 700));
-    _entryFade = CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOut);
-    _entrySlide = Tween<Offset>(
-            begin: const Offset(0, 0.04), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOut));
-    _entryCtrl.forward();
-
+    _profileService.addListener(_loadRecentAnalyses);
+    _loadRecentAnalyses();
     _initConnectivity();
     _listenConnectivity();
   }
 
   @override
   void dispose() {
-    _connectivitySub?.cancel();
-    _hexCtrl.dispose();
-    _pulseCtrl.dispose();
-    _entryCtrl.dispose();
+    _connectivitySub?.cancel().catchError((_) {});
+    _profileService.removeListener(_loadRecentAnalyses);
     super.dispose();
   }
 
-  /// Verifies active internet connectivity using network interfaces and a reachability probe.
+  Future<void> _loadRecentAnalyses() async {
+    final profile = _profileService.activeProfile;
+    if (profile == null) {
+      if (mounted && _recentEntries.isNotEmpty) {
+        setState(() => _recentEntries = const []);
+      }
+      return;
+    }
+    final items = await _profileService.getHistory(profile.id);
+    if (!mounted) return;
+    setState(() {
+      _recentEntries = items.take(3).toList(growable: false);
+    });
+  }
+
   Future<bool> _checkInternetConnection() async {
     try {
       final results = await Connectivity().checkConnectivity();
       final hasInterface = results.any((r) => r != ConnectivityResult.none);
       if (!hasInterface) return false;
-
-      // Fast DNS reachability probe
       try {
         final lookup = await InternetAddress.lookup('example.com')
             .timeout(const Duration(milliseconds: 2500));
@@ -87,150 +100,232 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _listenConnectivity() {
-    _connectivitySub =
-        Connectivity().onConnectivityChanged.listen((results) async {
-      final hasInterface = results.any((r) => r != ConnectivityResult.none);
-      if (!hasInterface) {
-        if (mounted && _isOnline) {
-          setState(() => _isOnline = false);
-        }
-        return;
-      }
-      final online = await _checkInternetConnection();
-      if (!mounted) return;
-      if (online != _isOnline) {
-        setState(() => _isOnline = online);
-      }
-    });
+    try {
+      _connectivitySub = Connectivity().onConnectivityChanged.listen(
+        (results) async {
+          final hasInterface =
+              results.any((r) => r != ConnectivityResult.none);
+          if (!hasInterface) {
+            if (mounted && _isOnline) setState(() => _isOnline = false);
+            return;
+          }
+          final online = await _checkInternetConnection();
+          if (mounted && online != _isOnline) {
+            setState(() => _isOnline = online);
+          }
+        },
+        onError: (_) {},
+      );
+    } catch (_) {}
+  }
+
+  void _openThemeSheet() {
+    final themeService = ThemeService();
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) {
+        return ListenableBuilder(
+          listenable: themeService,
+          builder: (ctx, _) {
+            final palette = DeepGuardPalette.of(ctx);
+            final current = themeService.themeMode;
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Semantics(
+                      header: true,
+                      child: Text(
+                        'Appearance',
+                        style: TextStyle(
+                          color: palette.textPrimary,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Choose how DeepGuard appears across all screens.',
+                      style: TextStyle(
+                        color: palette.textSecondary,
+                        fontSize: 14.5,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _ThemeOptionTile(
+                      title: 'Light Mode',
+                      subtitle: 'Bright surfaces with dark high-contrast text',
+                      icon: Icons.light_mode_outlined,
+                      selected: current == ThemeMode.light,
+                      onTap: () {
+                        themeService.setThemeMode(ThemeMode.light);
+                        Navigator.of(sheetCtx).pop();
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    _ThemeOptionTile(
+                      title: 'Dark Mode',
+                      subtitle: 'Deep navy surfaces optimized for low-light use',
+                      icon: Icons.dark_mode_outlined,
+                      selected: current == ThemeMode.dark,
+                      onTap: () {
+                        themeService.setThemeMode(ThemeMode.dark);
+                        Navigator.of(sheetCtx).pop();
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    _ThemeOptionTile(
+                      title: 'System Default',
+                      subtitle: 'Automatically matches your device setting',
+                      icon: Icons.brightness_auto_outlined,
+                      selected: current == ThemeMode.system,
+                      onTap: () {
+                        themeService.setThemeMode(ThemeMode.system);
+                        Navigator.of(sheetCtx).pop();
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _openRecentEntry(HistoryEntry entry) {
+    final result = PredictionResult(
+      id: entry.id,
+      filePath: entry.filePath,
+      mediaType: entry.isImage ? MediaType.image : MediaType.video,
+      status: PredictionStatus.completed,
+      result: entry.detectionResult == 'authentic'
+          ? DetectionResult.authentic
+          : entry.detectionResult == 'manipulated'
+              ? DetectionResult.manipulated
+              : null,
+      confidence: entry.confidence,
+      timestamp: entry.timestamp,
+      framing: entry.framing,
+      gradCam: entry.gradCam,
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ResultScreen(
+          result: result,
+          filePath: entry.filePath ?? '',
+          isHistory: true,
+          historyProvenance: entry.provenance,
+          onAnalyzeAnother: () {
+            Navigator.of(context).pop();
+            widget.onAnalyzeTap();
+          },
+          onGoHome: () => Navigator.of(context).pop(),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final palette = DeepGuardPalette.of(context);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF060918),
-      body: Stack(children: [
-        // Hex grid background
-        Positioned.fill(
-          child: AnimatedBuilder(
-            animation: _hexCtrl,
-            builder: (_, __) => CustomPaint(
-              painter: _HexBgPainter(t: _hexCtrl.value),
-            ),
+      backgroundColor: palette.backgroundSecondary,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildHeader(palette),
+              const SizedBox(height: 20),
+              _buildHeroSection(palette),
+              const SizedBox(height: 24),
+              _buildWorkflowSummary(palette),
+              if (_recentEntries.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                _buildRecentSection(palette),
+              ],
+            ],
           ),
         ),
-        // Data rails
-        const Positioned(left: 0, top: 0, bottom: 0, width: 20,
-            child: _DataRail()),
-        const Positioned(right: 0, top: 0, bottom: 0, width: 20,
-            child: _DataRail(reverse: true)),
-        // Content
-        FadeTransition(
-          opacity: _entryFade,
-          child: SlideTransition(
-            position: _entrySlide,
-            child: SafeArea(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildHeader(),
-                    const SizedBox(height: 28),
-                    _buildHeroCTA(),
-                    const SizedBox(height: 28),
-                    _buildCapabilityRow(),
-                    const SizedBox(height: 28),
-                    _buildSectionLabel('DETECTION PIPELINE'),
-                    const SizedBox(height: 14),
-                    _buildPipeline(),
-                    const SizedBox(height: 28),
-                    _buildSectionLabel('HOW IT WORKS'),
-                    const SizedBox(height: 14),
-                    _buildStep('01', 'Select Media',
-                        'Take a photo, record a video, or import from the gallery',
-                        Icons.input_rounded, DeepGuardColors.primary),
-                    const SizedBox(height: 10),
-                    _buildStep('02', 'AI Processing',
-                        'CNN extracts spatial features, RNN tracks temporal drift',
-                        Icons.memory_outlined, DeepGuardColors.secondary),
-                    const SizedBox(height: 10),
-                    _buildStep('03', 'Verdict',
-                        'Prediction confidence + AUTHENTIC / MANIPULATED classification returned',
-                        Icons.analytics_outlined, DeepGuardColors.accent),
-                    const SizedBox(height: 24),
-                    _buildAccuracyBadge(),
-                  ],
-                ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(DeepGuardPalette palette) {
+    final statusIcon =
+        _isOnline ? Icons.cloud_done_outlined : Icons.offline_bolt_outlined;
+    final statusColor =
+        _isOnline ? palette.successText : palette.textSecondary;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        ExcludeSemantics(
+          child: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: palette.brandNavy,
+              border: Border.all(
+                color: palette.accent.withValues(alpha: 0.65),
+                width: 1.5,
+              ),
+            ),
+            child: const Center(
+              child: Icon(
+                Icons.shield_rounded,
+                color: Colors.white,
+                size: 24,
               ),
             ),
           ),
         ),
-      ]),
-    );
-  }
-
-  // ── Header ────────────────────────────────────────────────────────────────
-  Widget _buildHeader() {
-    final Color statusColor =
-        _isOnline ? DeepGuardColors.authentic : DeepGuardColors.fake;
-    // The word beside the dot. `fake` is the classification red and measures
-    // 4.04:1 on a card and 3.37:1 on the lightest one, which is fine for a
-    // status dot and not fine for the 11px label that explains it.
-    final Color statusInk =
-        _isOnline ? DeepGuardColors.authentic : DeepGuardColors.fakeText;
-    return Row(children: [
-      AnimatedBuilder(
-        animation: _pulseCtrl,
-        builder: (_, __) => Container(
-          width: 42, height: 42,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: const LinearGradient(
-                colors: DeepGuardColors.primaryGradient),
-            boxShadow: [BoxShadow(
-              color: DeepGuardColors.primary
-                  .withAlpha((40 + 40 * _pulseCtrl.value).toInt()),
-              blurRadius: 16 + 8 * _pulseCtrl.value,
-              spreadRadius: 1,
-            )],
-          ),
-          child: ClipOval(
-            child: Image.asset('assets/images/deepguard_logo.png',
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const Icon(
-                    Icons.shield, color: Colors.white, size: 22)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Semantics(
+            header: true,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'DEEPGUARD',
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: palette.textPrimary,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.0,
+                    ),
+                  ),
+                ),
+                Text(
+                  'AI-Powered Deepfake Detection',
+                  style: TextStyle(
+                    color: palette.textSecondary,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-      const SizedBox(width: 12),
-      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('DEEPGUARD',
-            style: TextStyle(
-              color: DeepGuardColors.textPrimary,
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 4,
-              fontFamily: 'monospace',
-            )),
-        // Read from the same constant the About screen prints. This line said
-        // v1.0 for three releases, which is how a screen ends up describing a
-        // build that is not itself.
-        Text('v$kDeepGuardVersion · CNN–RNN HYBRID',
-            style: const TextStyle(
-              color: DeepGuardColors.primary,
-              fontSize: 11,
-              letterSpacing: 2.5,
-              fontFamily: 'monospace',
-            )),
-      ]),
-      const Spacer(),
-      // Live status indicator — dynamically reflects realtime Wi-Fi / internet connectivity
-      Tooltip(
-        message: _isOnline
-            ? 'Network Status: Connected (Online)'
-            : 'Network Status: Disconnected (Offline mode active)',
-        child: GestureDetector(
-          onTap: () async {
+        const SizedBox(width: 4),
+        IconButton(
+          onPressed: () async {
             final online = await _checkInternetConnection();
             if (!mounted) return;
             setState(() => _isOnline = online);
@@ -240,492 +335,536 @@ class _HomeScreenState extends State<HomeScreen>
               SnackBar(
                 content: Text(
                   online
-                      ? 'Network Status: ONLINE (Wi-Fi/Internet Connected)'
-                      : 'Network Status: OFFLINE (No Internet Connection)',
-                  // The SnackBar paints over its own dark red, not over a page
-                  // surface, so the bodyMedium default (textMuted, 4.2:1 on
-                  // 0xFF2A0D15) has to be overridden with real ink.
-                  style: const TextStyle(
-                      fontSize: 12, color: DeepGuardColors.textPrimary),
+                      ? 'Connected: Online provenance checks available.'
+                      : 'Offline mode: On-device AI detection remains fully available.',
                 ),
-                duration: const Duration(seconds: 2),
-                backgroundColor: online
-                    ? DeepGuardColors.surfaceCard
-                    : const Color(0xFF2A0D15),
-                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 3),
               ),
             );
           },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(
-                color: statusColor.withAlpha(80),
-              ),
-              color: statusColor.withAlpha(15),
-            ),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              AnimatedBuilder(
-                animation: _pulseCtrl,
-                builder: (_, __) => Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _isOnline
-                        ? statusColor.withAlpha(
-                            (150 + 105 * _pulseCtrl.value).toInt())
-                        : statusColor,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                _isOnline ? 'ONLINE' : 'OFFLINE',
-                style: TextStyle(
-                  color: statusInk,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 1.5,
-                  fontFamily: 'monospace',
-                ),
-              ),
-            ]),
+          tooltip: _isOnline
+              ? 'Network status: Online. Tap to refresh connection status.'
+              : 'Network status: Offline Ready. Core detection works offline. Tap to refresh.',
+          icon: Icon(statusIcon, color: statusColor),
+        ),
+        IconButton(
+          onPressed: _openThemeSheet,
+          tooltip: 'Change theme appearance',
+          icon: Icon(
+            palette.isDark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
+            color: palette.primaryText,
           ),
         ),
-      ),
-    ]);
+      ],
+    );
   }
 
-  // ── Hero CTA ──────────────────────────────────────────────────────────────
-  Widget _buildHeroCTA() {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: DeepGuardColors.primary.withAlpha(50)),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            DeepGuardColors.primary.withAlpha(12),
-            DeepGuardColors.secondary.withAlpha(8),
-          ],
-        ),
+  Widget _buildHeroSection(DeepGuardPalette palette) {
+    final statusIcon =
+        _isOnline ? Icons.cloud_done_outlined : Icons.offline_bolt_outlined;
+    final statusText = _isOnline ? 'Online' : 'Offline Ready';
+    final statusColor =
+        _isOnline ? palette.successText : palette.textSecondary;
+
+    return GlassCard(
+      padding: const EdgeInsets.all(22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: palette.processingContainer,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ExcludeSemantics(
+                      child: Icon(
+                        Icons.verified_user_outlined,
+                        size: 16,
+                        color: palette.primaryText,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        'On-Device Authenticity Check',
+                        style: TextStyle(
+                          color: palette.primaryText,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: _isOnline
+                      ? palette.successContainer
+                      : palette.surfaceElevated,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ExcludeSemantics(
+                      child: Icon(statusIcon, size: 15, color: statusColor),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      statusText,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Semantics(
+            header: true,
+            child: Text(
+              'Check Media Authenticity',
+              style: TextStyle(
+                color: palette.textPrimary,
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                height: 1.22,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Analyze images and videos to assess their authenticity.',
+            style: TextStyle(
+              color: palette.textSecondary,
+              fontSize: 16,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Primary Actions: Upload Image & Upload Video (responsive to font scale)
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+              final stackVertically =
+                  constraints.maxWidth < 275 || textScale > 1.2;
+
+              final uploadImageBtn = FilledButton.icon(
+                onPressed: widget.onUploadImageTap ?? widget.onAnalyzeTap,
+                icon: const Icon(Icons.image_outlined, size: 20),
+                label: const Text('Upload Image'),
+              );
+
+              final uploadVideoBtn = FilledButton.tonalIcon(
+                onPressed: widget.onUploadVideoTap ?? widget.onAnalyzeTap,
+                style: FilledButton.styleFrom(
+                  backgroundColor: palette.secondaryButton,
+                  foregroundColor: palette.onSecondaryButton,
+                  minimumSize: const Size(48, 50),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
+                  side: BorderSide(color: palette.controlBorder, width: 1.2),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: Icon(
+                  Icons.videocam_outlined,
+                  size: 20,
+                  color: palette.primaryText,
+                ),
+                label: const Text('Upload Video'),
+              );
+
+              if (stackVertically) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    uploadImageBtn,
+                    const SizedBox(height: 10),
+                    uploadVideoBtn,
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: uploadImageBtn),
+                  const SizedBox(width: 10),
+                  Expanded(child: uploadVideoBtn),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: widget.onAnalyzeTap,
+              icon: Icon(
+                Icons.analytics_outlined,
+                size: 20,
+                color: palette.primaryText,
+              ),
+              label: const Text('Analyze Media'),
+            ),
+          ),
+        ],
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('> deepguard --detect',
-            style: const TextStyle(
-              // Solid primary. withAlpha(160) is 3.78:1 at 11px — the prompt
-              // line that sets the whole terminal aesthetic was the least
-              // readable text on the page.
-              color: DeepGuardColors.primary,
-              fontSize: 11,
-              fontFamily: 'monospace',
-              letterSpacing: 0.5,
-            )),
-        const SizedBox(height: 10),
-        const Text(
-          'Detect AI-\nManipulated\nMedia.',
-          style: TextStyle(
-            color: DeepGuardColors.textPrimary,
-            fontSize: 34,
-            fontWeight: FontWeight.w900,
-            height: 1.1,
-            letterSpacing: -0.5,
+    );
+  }
+
+  Widget _buildWorkflowSummary(DeepGuardPalette palette) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Semantics(
+          header: true,
+          child: Text(
+            'How It Works',
+            style: TextStyle(
+              color: palette.textPrimary,
+              fontSize: 19,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
         const SizedBox(height: 12),
-        Text(
-          'Hybrid CNN–RNN model processes every frame. '
-          'Spatial artefacts and temporal drift — nothing hides.',
-          style: const TextStyle(
-            color: DeepGuardColors.textSecondary,
-            fontSize: 13,
-            height: 1.6,
-          ),
+        _WorkflowStepTile(
+          stepNumber: '1',
+          title: 'Choose Image or Video',
+          description: 'Select a saved file or capture a new sample.',
+          icon: Icons.perm_media_outlined,
+          palette: palette,
         ),
-        const SizedBox(height: 22),
-        Row(children: [
-          Expanded(child: _CyberButton(
-            label: 'ANALYSE FILE',
-            icon: Icons.upload_file_outlined,
-            accent: DeepGuardColors.primary,
-            onTap: widget.onAnalyzeTap,
-          )),
-        ]),
-      ]),
+        const SizedBox(height: 10),
+        _WorkflowStepTile(
+          stepNumber: '2',
+          title: 'Inspect Faces & Frames',
+          description: 'Media is analyzed privately on your device.',
+          icon: Icons.center_focus_strong_outlined,
+          palette: palette,
+        ),
+        const SizedBox(height: 10),
+        _WorkflowStepTile(
+          stepNumber: '3',
+          title: 'Review REAL or A.I. Result',
+          description: 'View the authenticity verdict and model confidence.',
+          icon: Icons.fact_check_outlined,
+          palette: palette,
+        ),
+      ],
     );
   }
 
-  // ── Capability row ────────────────────────────────────────────────────────
-  Widget _buildCapabilityRow() {
-    return Row(children: [
-      _buildCapTile('IMG', 'Image\nDetect', Icons.image_outlined,
-          DeepGuardColors.primary),
-      const SizedBox(width: 10),
-      _buildCapTile('VID', 'Video\nDetect', Icons.videocam_outlined,
-          DeepGuardColors.secondary),
-      const SizedBox(width: 10),
-      _buildCapTile('CAM', 'Camera\nCapture', Icons.camera_alt_outlined,
-          const Color(0xFF00E5FF)),
-    ]);
-  }
-
-  Widget _buildCapTile(
-      String code, String label, IconData icon, Color accent) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 10),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: accent.withAlpha(50)),
-          color: accent.withAlpha(10),
-        ),
-        child: Column(children: [
-          Text(code,
-              style: TextStyle(
-                  color: accent, fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 2,
-                  fontFamily: 'monospace')),
-          const SizedBox(height: 8),
-          Icon(icon, color: accent, size: 26),
-          const SizedBox(height: 8),
-          Text(label,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                  color: DeepGuardColors.textPrimary,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  height: 1.3)),
-        ]),
-      ),
-    );
-  }
-
-  // ── Pipeline ──────────────────────────────────────────────────────────────
-  Widget _buildPipeline() {
-    final steps = [
-      ('INPUT', DeepGuardColors.primary),
-      ('PREPROCESS', DeepGuardColors.primary),
-      ('CNN', DeepGuardColors.secondary),
-      ('RNN', DeepGuardColors.secondary),
-      ('FUSION', DeepGuardColors.accentText),
-      ('OUTPUT', DeepGuardColors.authentic),
-    ];
-    return SizedBox(
-      height: 48,
-      child: Row(
-        children: steps.asMap().entries.map((e) {
-          final isLast = e.key == steps.length - 1;
-          return Expanded(
-            child: Row(children: [
-              Expanded(
-                child: Container(
-                  height: 34,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: e.value.$2.withAlpha(60)),
-                    color: e.value.$2.withAlpha(12),
-                  ),
-                  child: Center(
-                    child: Text(e.value.$1,
-                        style: TextStyle(
-                            color: e.value.$2,
-                            // 10px, not 8px. Eight-pixel monospace with 0.8
-                            // letter-spacing is not a design choice, it is an
-                            // unreadable label; the row is wide enough for the
-                            // longest word at this size.
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.8,
-                            fontFamily: 'monospace')),
+  Widget _buildRecentSection(DeepGuardPalette palette) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Semantics(
+                header: true,
+                child: Text(
+                  'Recent Analyses',
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
-              if (!isLast)
-                Icon(Icons.chevron_right,
-                    size: 14, color: DeepGuardColors.textMuted),
-            ]),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
-  // ── Step card ─────────────────────────────────────────────────────────────
-  Widget _buildStep(
-      String num, String title, String sub, IconData icon, Color accent) {
-    // The step number and the trailing icon are painted at 22px and 14px,
-    // where 14px is ordinary-size text: `accent` (Verdict's magenta) measures
-    // 4.49:1 on the page background there, under the floor. The card's own
-    // fill and border keep the identity colour.
-    final Color ink = DeepGuardColors.textSafeFor(accent);
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: accent.withAlpha(40)),
-        color: accent.withAlpha(8),
-      ),
-      child: Row(children: [
-        Text(num,
-            style: TextStyle(
-              color: ink.withAlpha(180),
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
-              fontFamily: 'monospace',
-            )),
-        const SizedBox(width: 16),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title,
-                style: const TextStyle(
-                    color: DeepGuardColors.textPrimary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700)),
-            const SizedBox(height: 3),
-            Text(sub,
-                style: const TextStyle(
-                    color: DeepGuardColors.textSecondary,
-                    fontSize: 12,
-                    height: 1.4)),
+            ),
+            if (widget.onOpenHistoryTap != null)
+              TextButton(
+                onPressed: widget.onOpenHistoryTap,
+                child: const Text('View All'),
+              ),
           ],
-        )),
-        Icon(icon, color: ink, size: 22),
-      ]),
-    );
-  }
-
-  // ── Dataset test accuracy badge ───────────────────────────────────────────
-  Widget _buildAccuracyBadge() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-            color: DeepGuardColors.authentic.withAlpha(50)),
-        color: DeepGuardColors.authentic.withAlpha(8),
-      ),
-      child: Row(children: [
-        const Icon(Icons.verified_outlined,
-            color: DeepGuardColors.authentic, size: 28),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('MODEL TEST ACCURACY',
-                style: TextStyle(
-                  color: DeepGuardColors.authentic,
-                  fontSize: 11,
-                  letterSpacing: 2,
-                  fontWeight: FontWeight.w700,
-                  fontFamily: 'monospace',
-                )),
-            const SizedBox(height: 4),
-            const Text('84.82% Image  ·  71.67% Video',
-                style: TextStyle(
-                    color: DeepGuardColors.textPrimary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800)),
-            const SizedBox(height: 2),
-            // Safeguard: dataset-level evaluation metric, explicitly separated
-            // from the Prediction Confidence shown for each individual file.
-            const Text(
-                'Dataset-level test evaluation — not the Prediction '
-                'Confidence of individual files.  ·  TFLite on-device',
-                style: TextStyle(
-                    color: DeepGuardColors.textMuted,
-                    fontSize: 11,
-                    height: 1.35)),
-          ]),
         ),
-      ]),
+        const SizedBox(height: 8),
+        for (final entry in _recentEntries) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: GlassCard(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              onTap: () => _openRecentEntry(entry),
+              semanticLabel:
+                  '${entry.fileName}, classified as ${entry.resultLabel}, '
+                  'model confidence ${entry.confidencePercent.toStringAsFixed(0)} percent, '
+                  '${entry.formattedDate}. Activate to open result details.',
+              child: ExcludeSemantics(
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        color: entry.resultContainerFor(palette),
+                      ),
+                      child: Icon(
+                        entry.isImage
+                            ? Icons.image_outlined
+                            : Icons.videocam_outlined,
+                        color: entry.resultTextColorFor(palette),
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            entry.fileName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: palette.textPrimary,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            entry.formattedDate,
+                            style: TextStyle(
+                              color: palette.textMuted,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: entry.resultContainerFor(palette),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: entry
+                              .resultColorFor(palette)
+                              .withValues(alpha: 0.55),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            entry.resultIcon,
+                            size: 16,
+                            color: entry.resultTextColorFor(palette),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            entry.resultLabel,
+                            style: TextStyle(
+                              color: entry.resultTextColorFor(palette),
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
-
-  Widget _buildSectionLabel(String text) => Text(
-    text,
-    style: const TextStyle(
-      color: DeepGuardColors.textMuted,
-      fontSize: 11,
-      letterSpacing: 3,
-      fontWeight: FontWeight.w700,
-      fontFamily: 'monospace',
-    ),
-  );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Cyber button
-// ─────────────────────────────────────────────────────────────────────────────
-class _CyberButton extends StatelessWidget {
-  final String label;
+class _WorkflowStepTile extends StatelessWidget {
+  final String stepNumber;
+  final String title;
+  final String description;
   final IconData icon;
-  final Color accent;
-  final VoidCallback onTap;
-  const _CyberButton({
-    required this.label, required this.icon,
-    required this.accent, required this.onTap,
+  final DeepGuardPalette palette;
+
+  const _WorkflowStepTile({
+    required this.stepNumber,
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.palette,
   });
 
   @override
   Widget build(BuildContext context) {
-    // White label on a cyan→violet gradient measured 1.88:1 at the cyan end —
-    // the least accessible string in the app, on the app's primary call to
-    // action. A gradient has two contrast ratios, so ink is chosen against the
-    // worst stop; whichever half the label lands on, it clears the floor.
-    final Color ink =
-        DeepGuardContrast.inkOnAll([accent, DeepGuardColors.secondary]);
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 52,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(6),
-          gradient: LinearGradient(
-            colors: [accent, DeepGuardColors.secondary],
-            begin: Alignment.centerLeft,
-            end: Alignment.centerRight,
+    return GlassCard(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          ExcludeSemantics(
+            child: Container(
+              width: 38,
+              height: 38,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: palette.processingContainer,
+                border: Border.all(
+                  color: palette.primary.withValues(alpha: 0.35),
+                ),
+              ),
+              child: Text(
+                stepNumber,
+                style: TextStyle(
+                  color: palette.primaryText,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
           ),
-          boxShadow: [BoxShadow(
-            color: accent.withAlpha(80),
-            blurRadius: 20, spreadRadius: 1, offset: const Offset(0, 4),
-          )],
-        ),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(icon, color: ink, size: 18),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: palette.textPrimary,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  description,
+                  style: TextStyle(
+                    color: palette.textSecondary,
+                    fontSize: 14,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(width: 10),
-          Text(label,
-              style: TextStyle(
-                color: ink,
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 2,
-                fontFamily: 'monospace',
-              )),
-        ]),
+          ExcludeSemantics(
+            child: Icon(icon, color: palette.accentText, size: 22),
+          ),
+        ],
       ),
     );
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Hex background (shared with onboarding)
-// ─────────────────────────────────────────────────────────────────────────────
-const _sqrt3 = 1.7320508;
+class _ThemeOptionTile extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
 
-class _HexBgPainter extends CustomPainter {
-  final double t;
-  const _HexBgPainter({required this.t});
-  @override
-  void paint(Canvas canvas, Size s) {
-    const r = 26.0;
-    const h = r * _sqrt3;
-    const colW = r * 1.5;
-    final cols = (s.width / colW).ceil() + 2;
-    final rows = (s.height / h).ceil() + 2;
-    final p = Paint()..style = PaintingStyle.stroke..strokeWidth = 0.6;
-    for (int col = -1; col < cols; col++) {
-      for (int row = -1; row < rows; row++) {
-        final cx = col * colW;
-        final cy = row * h + (col.isOdd ? h / 2 : 0);
-        final phase = cx * 0.007 + cy * 0.005 + t * 2 * 3.14159;
-        final alpha = (sin(phase) * 0.5 + 0.5) * 16 + 4;
-        p.color = DeepGuardColors.primary.withAlpha(alpha.toInt());
-        _hex(canvas, Offset(cx, cy), r, p);
-      }
-    }
-  }
-  void _hex(Canvas c, Offset center, double r, Paint p) {
-    final path = Path();
-    for (int i = 0; i < 6; i++) {
-      final a = 3.14159 / 3 * i - 3.14159 / 6;
-      final x = center.dx + r * cos(a);
-      final y = center.dy + r * sin(a);
-      i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
-    }
-    path.close();
-    c.drawPath(path, p);
-  }
-  @override
-  bool shouldRepaint(_HexBgPainter o) => o.t != t;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Data rail (shared with onboarding)
-// ─────────────────────────────────────────────────────────────────────────────
-class _DataRail extends StatefulWidget {
-  final bool reverse;
-  const _DataRail({this.reverse = false});
-  @override
-  State<_DataRail> createState() => _DataRailState();
-}
-
-class _DataRailState extends State<_DataRail>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c;
-  final _rng = Random(7);
-  late final List<String> _chars;
+  const _ThemeOptionTile({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
-  void initState() {
-    super.initState();
-    _chars = List.generate(60,
-        (_) => _rng.nextInt(256).toRadixString(16).padLeft(2, '0').toUpperCase());
-    _c = AnimationController(
-        vsync: this, duration: const Duration(seconds: 7))..repeat();
-  }
-  @override
-  void dispose() { _c.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: _c,
-    builder: (_, __) => ClipRect(
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: _RailPainter(
-          chars: _chars,
-          t: widget.reverse ? 1 - _c.value : _c.value,
-        ),
-      ),
-    ),
-  );
-}
-
-class _RailPainter extends CustomPainter {
-  final List<String> chars;
-  final double t;
-  const _RailPainter({required this.chars, required this.t});
-  @override
-  void paint(Canvas canvas, Size s) {
-    const lh = 14.0;
-    final offset = t * chars.length * lh;
-    for (int i = 0; i < chars.length * 2; i++) {
-      final y = (i * lh - offset) % (chars.length * lh);
-      if (y < 0 || y > s.height) continue;
-      final alpha = (sin(y / s.height * 3.14159) * 70 + 15).toInt().clamp(0, 255);
-      final tp = TextPainter(
-        text: TextSpan(
-          text: chars[i % chars.length],
-          style: TextStyle(
-            // Pure decoration: a drifting hex rail behind the hero. WCAG
-            // exempts it (SC 1.4.3 has no thing to read), so the alpha ramp
-            // here is an aesthetic fade, not a text style — and it is the only
-            // place in the app allowed to dim a colour this far.
-            color: DeepGuardColors.primary.withAlpha(alpha),
-            fontSize: 8, fontFamily: 'monospace',
+  Widget build(BuildContext context) {
+    final palette = DeepGuardPalette.of(context);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '$title. $subtitle',
+      child: Material(
+        color: selected ? palette.processingContainer : palette.surfaceElevated,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 56),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: selected ? palette.primaryButton : palette.border,
+                width: selected ? 1.5 : 1,
+              ),
+            ),
+            child: ExcludeSemantics(
+              child: Row(
+                children: [
+                  Icon(
+                    icon,
+                    color: selected ? palette.primaryText : palette.textSecondary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            color: palette.textPrimary,
+                            fontSize: 15.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            color: palette.textSecondary,
+                            fontSize: 13.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (selected)
+                    Icon(
+                      Icons.check_circle_rounded,
+                      color: palette.primaryText,
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      tp.paint(canvas, Offset(s.width / 2 - tp.width / 2, y));
-    }
+      ),
+    );
   }
-  @override
-  bool shouldRepaint(_RailPainter o) => o.t != t;
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/analysis_framing.dart';
+import '../theme/app_theme.dart';
 
 /// FramingEvidenceOverlay
 ///
@@ -8,23 +9,13 @@ import '../models/analysis_framing.dart';
 /// actually determined their result: the face the on-device detector located,
 /// and the square that was cropped and resized to the model's 128x128 input.
 ///
-/// ── INTEGRITY RULE, DO NOT RELAX ────────────────────────────────────────────
-/// These marks show WHAT WAS LOOKED AT. They must never be presented as showing
-/// WHERE manipulation was found. `deepguard_image.tflite` is a whole-square
-/// classifier: it receives one 128x128 crop and emits one probability, and it
-/// contains no localization, no attention map and no region scoring of any kind.
-/// A box drawn around a face beneath a MANIPULATED header reads as "this area is
-/// fake", which is a claim the system cannot support. Hence:
-///   - The colours below are deliberately NOT [DeepGuardColors.authentic] or
-///     [DeepGuardColors.fake]. Verdict colours on a geometric mark would imply
-///     the mark carries verdict meaning.
-///   - [FramingEvidenceLegend] always ends with the sentence that states this.
-///   - Nothing here may be rendered on a video result, where no crop exists.
+/// INTEGRITY RULE: These marks show WHAT WAS LOOKED AT. They never claim to
+/// show WHERE manipulation was found.
 class FramingEvidenceOverlay extends StatelessWidget {
   final AnalysisFraming? framing;
   final Widget child;
 
-  /// The analysed square. Sky rather than green/red — see the rule above.
+  /// The analysed square. Sky cyan rather than green/red so it never implies a verdict.
   static const Color analysedColor = Color(0xFF38BDF8);
 
   /// The detected face box: a locator for the crop, nothing more.
@@ -39,8 +30,6 @@ class FramingEvidenceOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final f = framing;
-    // No framing means nothing honest can be drawn. Legacy history records and
-    // every video result land here, and both get the untouched media.
     if (f == null || f.frameWidth <= 0 || f.frameHeight <= 0) return child;
 
     return LayoutBuilder(builder: (context, c) {
@@ -48,9 +37,6 @@ class FramingEvidenceOverlay extends StatelessWidget {
       final box = Size(c.maxWidth, c.maxHeight);
       final src = Size(f.frameWidth.toDouble(), f.frameHeight.toDouble());
 
-      // The media is laid out with BoxFit.contain, so it is letterboxed inside
-      // this box. Mapping image pixels onto widget pixels has to reproduce that
-      // letterboxing or every rectangle drifts off the subject.
       final fit = applyBoxFit(BoxFit.contain, src, box);
       final dest = fit.destination;
       if (dest.width <= 0 || dest.height <= 0) return child;
@@ -106,9 +92,6 @@ class _FramingPainter extends CustomPainter {
     final analysed = imageRect.intersect(_map(framing.analysedBox));
     if (analysed.isEmpty) return;
 
-    // Dim everything the classifier never received. On a whole-frame result
-    // this covers nothing; on a crop it shows exactly how much was discarded,
-    // which is the fact that explains most "why did it miss" questions.
     final coversFrame = analysed.width >= imageRect.width - 0.5 &&
         analysed.height >= imageRect.height - 0.5;
     if (!coversFrame) {
@@ -125,8 +108,13 @@ class _FramingPainter extends CustomPainter {
       ..strokeWidth = 2
       ..color = FramingEvidenceOverlay.analysedColor;
     canvas.drawRect(analysed, edge);
-    _label(canvas, analysed, framing.cropApplied ? 'analysed' : 'whole frame',
-        FramingEvidenceOverlay.analysedColor, inside: true);
+    _label(
+      canvas,
+      analysed,
+      framing.cropApplied ? 'analysed' : 'whole frame',
+      FramingEvidenceOverlay.analysedColor,
+      inside: true,
+    );
 
     final face = framing.faceRect;
     if (face == null || !face.isValid) return;
@@ -140,35 +128,46 @@ class _FramingPainter extends CustomPainter {
         ..strokeWidth = 1.5
         ..color = FramingEvidenceOverlay.faceColor,
     );
-    _label(canvas, mapped, 'face located',
-        FramingEvidenceOverlay.faceColor, inside: false);
+    _label(
+      canvas,
+      mapped,
+      'face located',
+      FramingEvidenceOverlay.faceColor,
+      inside: false,
+    );
   }
 
-  /// Tiny monospace tag. Suppressed when the box is too small to hold it, so a
-  /// distant face produces a clean rectangle rather than a smear of text.
-  void _label(Canvas canvas, Rect r, String text, Color color,
-      {required bool inside}) {
+  void _label(
+    Canvas canvas,
+    Rect r,
+    String text,
+    Color color, {
+    required bool inside,
+  }) {
     final tp = TextPainter(
       text: TextSpan(
         text: text,
-        // 11px, not 9px: this is real text on a real background, so it carries
-        // the same floor as everything else in the app, and 9px was below what
-        // anyone can read on a phone. Both labels sit on the opaque
-        // 0xCC0B0E14 plate — sky measures ~7:1 and white ~13:1 against it.
         style: TextStyle(
-            color: color, fontSize: 11, fontFamily: 'monospace', height: 1.0),
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          height: 1.0,
+        ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
 
     if (tp.width + 6 > r.width || tp.height + 4 > r.height) return;
 
-    final bg = Paint()..color = const Color(0xCC0B0E14);
+    final bg = Paint()..color = const Color(0xD90B0E14);
     final offset = inside
-        ? Offset(r.left + 2, r.top + 2)
-        : Offset(r.left + 2, r.top - tp.height - 4);
-    canvas.drawRect(
-      Rect.fromLTWH(offset.dx - 2, offset.dy - 1, tp.width + 5, tp.height + 3),
+        ? Offset(r.left + 3, r.top + 3)
+        : Offset(r.left + 3, r.top - tp.height - 5);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(offset.dx - 3, offset.dy - 2, tp.width + 6, tp.height + 4),
+        const Radius.circular(3),
+      ),
       bg,
     );
     tp.paint(canvas, offset);
@@ -181,23 +180,24 @@ class _FramingPainter extends CustomPainter {
       old.scale != scale;
 }
 
-/// The caption that makes the overlay's meaning explicit. Ship the overlay and
-/// this together; the overlay alone is exactly the ambiguity the rule above
-/// exists to prevent.
+/// Companion legend explaining what [FramingEvidenceOverlay] displays.
 class FramingEvidenceLegend extends StatelessWidget {
   final AnalysisFraming? framing;
-  final Color mutedColor;
+  final Color? mutedColor;
 
   const FramingEvidenceLegend({
     super.key,
     required this.framing,
-    required this.mutedColor,
+    this.mutedColor,
   });
 
   @override
   Widget build(BuildContext context) {
     final f = framing;
     if (f == null || f.frameWidth <= 0) return const SizedBox.shrink();
+
+    final palette = DeepGuardPalette.of(context);
+    final textColor = palette.textSecondary;
 
     final whatHappened = f.cropApplied
         ? '${f.faceCount} face${f.faceCount == 1 ? '' : 's'} found. '
@@ -218,39 +218,71 @@ class FramingEvidenceLegend extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 10),
-        Row(children: [
-          _key(FramingEvidenceOverlay.analysedColor, 'region analysed'),
-          const SizedBox(width: 14),
-          _key(FramingEvidenceOverlay.faceColor, 'face located'),
-        ]),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 14,
+          runSpacing: 6,
+          children: [
+            _key(
+              FramingEvidenceOverlay.analysedColor,
+              'region analysed',
+              palette,
+            ),
+            _key(
+              palette.isDark
+                  ? FramingEvidenceOverlay.faceColor
+                  : palette.brandNavy,
+              'face located',
+              palette,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          whatHappened,
+          style: TextStyle(
+            color: textColor,
+            fontSize: 13.5,
+            height: 1.45,
+          ),
+        ),
         const SizedBox(height: 6),
-        Text(whatHappened,
-            style: TextStyle(
-                color: mutedColor, fontSize: 11, height: 1.45,
-                fontFamily: 'monospace')),
-        const SizedBox(height: 4),
         Text(
           'These marks show what was looked at. They do not locate '
           'manipulation — the classifier returns one verdict for the whole '
           'square, so no region here should be read as the affected area.',
-          style: TextStyle(color: mutedColor, fontSize: 11, height: 1.4),
+          style: TextStyle(
+            color: palette.textMuted,
+            fontSize: 13,
+            height: 1.45,
+          ),
         ),
       ],
     );
   }
 
-  Widget _key(Color color, String label) => Row(children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-              border: Border.all(color: color, width: 1.5),
-              borderRadius: BorderRadius.circular(2)),
-        ),
-        const SizedBox(width: 5),
-        Text(label,
+  Widget _key(Color color, String label, DeepGuardPalette palette) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ExcludeSemantics(
+            child: Container(
+              width: 12,
+              height: 12,
+              decoration: BoxDecoration(
+                border: Border.all(color: color, width: 2),
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
             style: TextStyle(
-                color: mutedColor, fontSize: 11, fontFamily: 'monospace')),
-      ]);
+              color: palette.textPrimary,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      );
 }

@@ -1,0 +1,1113 @@
+{
+  "standard": "WCAG 2.2 Level AA (SC 1.4.3 & SC 1.4.11)",
+  "lightMode": {
+    "mode": "Light Mode",
+    "checks": [
+      {
+        "theme": "Light Mode",
+        "pair": "textPrimary on backgroundPrimary",
+        "foreground": "#172033",
+        "background": "#FFFFFF",
+        "measuredRatio": 16.27,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "textSecondary on backgroundPrimary",
+        "foreground": "#475569",
+        "background": "#FFFFFF",
+        "measuredRatio": 7.58,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "textMuted on backgroundPrimary",
+        "foreground": "#596579",
+        "background": "#FFFFFF",
+        "measuredRatio": 5.9,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "primaryText on backgroundPrimary",
+        "foreground": "#1E4BB2",
+        "background": "#FFFFFF",
+        "measuredRatio": 7.76,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "accentText on backgroundPrimary",
+        "foreground": "#06748B",
+        "background": "#FFFFFF",
+        "measuredRatio": 5.41,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "realText on backgroundPrimary",
+        "foreground": "#117A50",
+        "background": "#FFFFFF",
+        "measuredRatio": 5.35,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "aiText on backgroundPrimary",
+        "foreground": "#B82E38",
+        "background": "#FFFFFF",
+        "measuredRatio": 6.02,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "warningText on backgroundPrimary",
+        "foreground": "#9A4D00",
+        "background": "#FFFFFF",
+        "measuredRatio": 6.11,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "errorText on backgroundPrimary",
+        "foreground": "#B82E38",
+        "background": "#FFFFFF",
+        "measuredRatio": 6.02,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "controlBorder on backgroundPrimary",
+        "foreground": "#64748B",
+        "background": "#FFFFFF",
+        "measuredRatio": 4.76,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 UI Component Boundary",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "focusIndicator on backgroundPrimary",
+        "foreground": "#2457C5",
+        "background": "#FFFFFF",
+        "measuredRatio": 6.47,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Focus Indicator",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "textPrimary on backgroundSecondary",
+        "foreground": "#172033",
+        "background": "#F3F6FA",
+        "measuredRatio": 15.01,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "textSecondary on backgroundSecondary",
+        "foreground": "#475569",
+        "background": "#F3F6FA",
+        "measuredRatio": 6.99,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "textMuted on backgroundSecondary",
+        "foreground": "#596579",
+        "background": "#F3F6FA",
+        "measuredRatio": 5.44,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "primaryText on backgroundSecondary",
+        "foreground": "#1E4BB2",
+        "background": "#F3F6FA",
+        "measuredRatio": 7.16,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "accentText on backgroundSecondary",
+        "foreground": "#06748B",
+        "background": "#F3F6FA",
+        "measuredRatio": 4.99,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "realText on backgroundSecondary",
+        "foreground": "#117A50",
+        "background": "#F3F6FA",
+        "measuredRatio": 4.94,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "aiText on backgroundSecondary",
+        "foreground": "#B82E38",
+        "background": "#F3F6FA",
+        "measuredRatio": 5.56,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "warningText on backgroundSecondary",
+        "foreground": "#9A4D00",
+        "background": "#F3F6FA",
+        "measuredRatio": 5.64,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "errorText on backgroundSecondary",
+        "foreground": "#B82E38",
+        "background": "#F3F6FA",
+        "measuredRatio": 5.56,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "controlBorder on backgroundSecondary",
+        "foreground": "#64748B",
+        "background": "#F3F6FA",
+        "measuredRatio": 4.39,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 UI Component Boundary",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "focusIndicator on backgroundSecondary",
+        "foreground": "#2457C5",
+        "background": "#F3F6FA",
+        "measuredRatio": 5.97,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Focus Indicator",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "textPrimary on surface",
+        "foreground": "#172033",
+        "background": "#FFFFFF",
+        "measuredRatio": 16.27,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "textSecondary on surface",
+        "foreground": "#475569",
+        "background": "#FFFFFF",
+        "measuredRatio": 7.58,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "textMuted on surface",
+        "foreground": "#596579",
+        "background": "#FFFFFF",
+        "measuredRatio": 5.9,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "primaryText on surface",
+        "foreground": "#1E4BB2",
+        "background": "#FFFFFF",
+        "measuredRatio": 7.76,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "accentText on surface",
+        "foreground": "#06748B",
+        "background": "#FFFFFF",
+        "measuredRatio": 5.41,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "realText on surface",
+        "foreground": "#117A50",
+        "background": "#FFFFFF",
+        "measuredRatio": 5.35,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "aiText on surface",
+        "foreground": "#B82E38",
+        "background": "#FFFFFF",
+        "measuredRatio": 6.02,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "warningText on surface",
+        "foreground": "#9A4D00",
+        "background": "#FFFFFF",
+        "measuredRatio": 6.11,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "errorText on surface",
+        "foreground": "#B82E38",
+        "background": "#FFFFFF",
+        "measuredRatio": 6.02,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "controlBorder on surface",
+        "foreground": "#64748B",
+        "background": "#FFFFFF",
+        "measuredRatio": 4.76,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 UI Component Boundary",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "focusIndicator on surface",
+        "foreground": "#2457C5",
+        "background": "#FFFFFF",
+        "measuredRatio": 6.47,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Focus Indicator",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "textPrimary on surfaceElevated",
+        "foreground": "#172033",
+        "background": "#EAF0F8",
+        "measuredRatio": 14.19,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "textSecondary on surfaceElevated",
+        "foreground": "#475569",
+        "background": "#EAF0F8",
+        "measuredRatio": 6.61,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "textMuted on surfaceElevated",
+        "foreground": "#596579",
+        "background": "#EAF0F8",
+        "measuredRatio": 5.14,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "primaryText on surfaceElevated",
+        "foreground": "#1E4BB2",
+        "background": "#EAF0F8",
+        "measuredRatio": 6.77,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "accentText on surfaceElevated",
+        "foreground": "#06748B",
+        "background": "#EAF0F8",
+        "measuredRatio": 4.72,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "realText on surfaceElevated",
+        "foreground": "#117A50",
+        "background": "#EAF0F8",
+        "measuredRatio": 4.67,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "aiText on surfaceElevated",
+        "foreground": "#B82E38",
+        "background": "#EAF0F8",
+        "measuredRatio": 5.25,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "warningText on surfaceElevated",
+        "foreground": "#9A4D00",
+        "background": "#EAF0F8",
+        "measuredRatio": 5.33,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "errorText on surfaceElevated",
+        "foreground": "#B82E38",
+        "background": "#EAF0F8",
+        "measuredRatio": 5.25,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "controlBorder on surfaceElevated",
+        "foreground": "#64748B",
+        "background": "#EAF0F8",
+        "measuredRatio": 4.15,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 UI Component Boundary",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "focusIndicator on surfaceElevated",
+        "foreground": "#2457C5",
+        "background": "#EAF0F8",
+        "measuredRatio": 5.65,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Focus Indicator",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "realText on realContainer",
+        "foreground": "#117A50",
+        "background": "#ECF9F3",
+        "measuredRatio": 4.95,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Verdict Badge Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "aiText on aiContainer",
+        "foreground": "#B82E38",
+        "background": "#FDF1F2",
+        "measuredRatio": 5.46,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Verdict Badge Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "warningText on warningContainer",
+        "foreground": "#9A4D00",
+        "background": "#FFF8EB",
+        "measuredRatio": 5.79,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Warning Banner Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "errorText on errorContainer",
+        "foreground": "#B82E38",
+        "background": "#FDF1F2",
+        "measuredRatio": 5.46,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Error Banner Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "primaryText on processingContainer",
+        "foreground": "#1E4BB2",
+        "background": "#EBF2FC",
+        "measuredRatio": 6.89,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Processing Chip Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "onPrimaryButton on primaryButton",
+        "foreground": "#FFFFFF",
+        "background": "#2457C5",
+        "measuredRatio": 6.47,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Primary Button Label",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "onSecondaryButton on secondaryButton",
+        "foreground": "#172033",
+        "background": "#EAF0F8",
+        "measuredRatio": 14.19,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Secondary Button Label",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "onDangerButton on dangerButton",
+        "foreground": "#FFFFFF",
+        "background": "#B82E38",
+        "measuredRatio": 6.02,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Destructive Button / Error Toast",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "realClassification graphic on surface",
+        "foreground": "#16865A",
+        "background": "#FFFFFF",
+        "measuredRatio": 4.57,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Graphic Status",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "aiClassification graphic on surface",
+        "foreground": "#D64B55",
+        "background": "#FFFFFF",
+        "measuredRatio": 4.2,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Graphic Status",
+        "status": "PASS"
+      },
+      {
+        "theme": "Light Mode",
+        "pair": "accent graphic on surface",
+        "foreground": "#089BB8",
+        "background": "#FFFFFF",
+        "measuredRatio": 3.29,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Graphic Accent",
+        "status": "PASS"
+      }
+    ]
+  },
+  "darkMode": {
+    "mode": "Dark Mode",
+    "checks": [
+      {
+        "theme": "Dark Mode",
+        "pair": "textPrimary on backgroundPrimary",
+        "foreground": "#F4F7FC",
+        "background": "#101827",
+        "measuredRatio": 16.55,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "textSecondary on backgroundPrimary",
+        "foreground": "#B8C5D8",
+        "background": "#101827",
+        "measuredRatio": 10.17,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "textMuted on backgroundPrimary",
+        "foreground": "#9BB0C9",
+        "background": "#101827",
+        "measuredRatio": 7.99,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "primaryText on backgroundPrimary",
+        "foreground": "#7FA6FB",
+        "background": "#101827",
+        "measuredRatio": 7.4,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "accentText on backgroundPrimary",
+        "foreground": "#35C9E2",
+        "background": "#101827",
+        "measuredRatio": 8.97,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "realText on backgroundPrimary",
+        "foreground": "#36CA8D",
+        "background": "#101827",
+        "measuredRatio": 8.45,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "aiText on backgroundPrimary",
+        "foreground": "#F47881",
+        "background": "#101827",
+        "measuredRatio": 6.64,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "warningText on backgroundPrimary",
+        "foreground": "#FBBF24",
+        "background": "#101827",
+        "measuredRatio": 10.64,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "errorText on backgroundPrimary",
+        "foreground": "#F47881",
+        "background": "#101827",
+        "measuredRatio": 6.64,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "controlBorder on backgroundPrimary",
+        "foreground": "#69809E",
+        "background": "#101827",
+        "measuredRatio": 4.38,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 UI Component Boundary",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "focusIndicator on backgroundPrimary",
+        "foreground": "#35C9E2",
+        "background": "#101827",
+        "measuredRatio": 8.97,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Focus Indicator",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "textPrimary on backgroundSecondary",
+        "foreground": "#F4F7FC",
+        "background": "#172338",
+        "measuredRatio": 14.66,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "textSecondary on backgroundSecondary",
+        "foreground": "#B8C5D8",
+        "background": "#172338",
+        "measuredRatio": 9.01,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "textMuted on backgroundSecondary",
+        "foreground": "#9BB0C9",
+        "background": "#172338",
+        "measuredRatio": 7.08,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "primaryText on backgroundSecondary",
+        "foreground": "#7FA6FB",
+        "background": "#172338",
+        "measuredRatio": 6.56,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "accentText on backgroundSecondary",
+        "foreground": "#35C9E2",
+        "background": "#172338",
+        "measuredRatio": 7.95,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "realText on backgroundSecondary",
+        "foreground": "#36CA8D",
+        "background": "#172338",
+        "measuredRatio": 7.49,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "aiText on backgroundSecondary",
+        "foreground": "#F47881",
+        "background": "#172338",
+        "measuredRatio": 5.88,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "warningText on backgroundSecondary",
+        "foreground": "#FBBF24",
+        "background": "#172338",
+        "measuredRatio": 9.43,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "errorText on backgroundSecondary",
+        "foreground": "#F47881",
+        "background": "#172338",
+        "measuredRatio": 5.88,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "controlBorder on backgroundSecondary",
+        "foreground": "#69809E",
+        "background": "#172338",
+        "measuredRatio": 3.88,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 UI Component Boundary",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "focusIndicator on backgroundSecondary",
+        "foreground": "#35C9E2",
+        "background": "#172338",
+        "measuredRatio": 7.95,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Focus Indicator",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "textPrimary on surface",
+        "foreground": "#F4F7FC",
+        "background": "#1B2A40",
+        "measuredRatio": 13.47,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "textSecondary on surface",
+        "foreground": "#B8C5D8",
+        "background": "#1B2A40",
+        "measuredRatio": 8.28,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "textMuted on surface",
+        "foreground": "#9BB0C9",
+        "background": "#1B2A40",
+        "measuredRatio": 6.51,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "primaryText on surface",
+        "foreground": "#7FA6FB",
+        "background": "#1B2A40",
+        "measuredRatio": 6.03,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "accentText on surface",
+        "foreground": "#35C9E2",
+        "background": "#1B2A40",
+        "measuredRatio": 7.3,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "realText on surface",
+        "foreground": "#36CA8D",
+        "background": "#1B2A40",
+        "measuredRatio": 6.88,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "aiText on surface",
+        "foreground": "#F47881",
+        "background": "#1B2A40",
+        "measuredRatio": 5.41,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "warningText on surface",
+        "foreground": "#FBBF24",
+        "background": "#1B2A40",
+        "measuredRatio": 8.66,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "errorText on surface",
+        "foreground": "#F47881",
+        "background": "#1B2A40",
+        "measuredRatio": 5.41,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "controlBorder on surface",
+        "foreground": "#69809E",
+        "background": "#1B2A40",
+        "measuredRatio": 3.57,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 UI Component Boundary",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "focusIndicator on surface",
+        "foreground": "#35C9E2",
+        "background": "#1B2A40",
+        "measuredRatio": 7.3,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Focus Indicator",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "textPrimary on surfaceElevated",
+        "foreground": "#F4F7FC",
+        "background": "#22344F",
+        "measuredRatio": 11.7,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "textSecondary on surfaceElevated",
+        "foreground": "#B8C5D8",
+        "background": "#22344F",
+        "measuredRatio": 7.19,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "textMuted on surfaceElevated",
+        "foreground": "#9BB0C9",
+        "background": "#22344F",
+        "measuredRatio": 5.65,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "primaryText on surfaceElevated",
+        "foreground": "#7FA6FB",
+        "background": "#22344F",
+        "measuredRatio": 5.23,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "accentText on surfaceElevated",
+        "foreground": "#35C9E2",
+        "background": "#22344F",
+        "measuredRatio": 6.34,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "realText on surfaceElevated",
+        "foreground": "#36CA8D",
+        "background": "#22344F",
+        "measuredRatio": 5.97,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "aiText on surfaceElevated",
+        "foreground": "#F47881",
+        "background": "#22344F",
+        "measuredRatio": 4.69,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "warningText on surfaceElevated",
+        "foreground": "#FBBF24",
+        "background": "#22344F",
+        "measuredRatio": 7.52,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "errorText on surfaceElevated",
+        "foreground": "#F47881",
+        "background": "#22344F",
+        "measuredRatio": 4.69,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Normal Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "controlBorder on surfaceElevated",
+        "foreground": "#69809E",
+        "background": "#22344F",
+        "measuredRatio": 3.1,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 UI Component Boundary",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "focusIndicator on surfaceElevated",
+        "foreground": "#35C9E2",
+        "background": "#22344F",
+        "measuredRatio": 6.34,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Focus Indicator",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "realText on realContainer",
+        "foreground": "#36CA8D",
+        "background": "#132E2B",
+        "measuredRatio": 6.87,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Verdict Badge Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "aiText on aiContainer",
+        "foreground": "#F47881",
+        "background": "#321C25",
+        "measuredRatio": 5.91,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Verdict Badge Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "warningText on warningContainer",
+        "foreground": "#FBBF24",
+        "background": "#302617",
+        "measuredRatio": 8.89,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Warning Banner Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "errorText on errorContainer",
+        "foreground": "#F47881",
+        "background": "#321C25",
+        "measuredRatio": 5.91,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Error Banner Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "primaryText on processingContainer",
+        "foreground": "#7FA6FB",
+        "background": "#162B44",
+        "measuredRatio": 5.98,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Processing Chip Text",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "onPrimaryButton on primaryButton",
+        "foreground": "#0B1324",
+        "background": "#5988F5",
+        "measuredRatio": 5.53,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Primary Button Label",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "onSecondaryButton on secondaryButton",
+        "foreground": "#F4F7FC",
+        "background": "#22344F",
+        "measuredRatio": 11.7,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Secondary Button Label",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "onDangerButton on dangerButton",
+        "foreground": "#0B1324",
+        "background": "#F47881",
+        "measuredRatio": 6.93,
+        "requiredFloor": 4.5,
+        "criterion": "SC 1.4.3 Destructive Button / Error Toast",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "realClassification graphic on surface",
+        "foreground": "#16865A",
+        "background": "#1B2A40",
+        "measuredRatio": 3.16,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Graphic Status",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "aiClassification graphic on surface",
+        "foreground": "#D64B55",
+        "background": "#1B2A40",
+        "measuredRatio": 3.44,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Graphic Status",
+        "status": "PASS"
+      },
+      {
+        "theme": "Dark Mode",
+        "pair": "accent graphic on surface",
+        "foreground": "#35C9E2",
+        "background": "#1B2A40",
+        "measuredRatio": 7.3,
+        "requiredFloor": 3.0,
+        "criterion": "SC 1.4.11 Graphic Accent",
+        "status": "PASS"
+      }
+    ]
+  }
+}

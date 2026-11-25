@@ -1,6 +1,10 @@
 export 'ai_service.dart';
 export 'deepguard_tflite_service.dart';
+export 'evidence_vault_service.dart';
+export 'evidence_zip_codec.dart';
+export 'history_backup_service.dart';
 export 'preprocessing_service.dart';
 export 'preprocessing_parity_service.dart';
 export 'profile_service.dart';
+export 'theme_service.dart';
 export 'upload_verification_service.dart';

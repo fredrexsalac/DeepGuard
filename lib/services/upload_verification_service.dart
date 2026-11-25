@@ -28,14 +28,43 @@ class ValidationCheck {
     }
   }
 
-  /// The status colour with enough luminance to be read as words. Identical to
-  /// [color] except for FAIL, whose saturated `fake` measures 4.04:1 on a card
-  /// — fine for the icon and border, under the floor for the 11px label.
   Color get textColor {
     switch (status) {
-      case ValidationStatus.pass: return DeepGuardColors.authentic;
+      case ValidationStatus.pass: return DeepGuardColors.authenticText;
       case ValidationStatus.warn: return DeepGuardColors.warning;
       case ValidationStatus.fail: return DeepGuardColors.fakeText;
+    }
+  }
+
+  Color colorFor(DeepGuardPalette palette) {
+    switch (status) {
+      case ValidationStatus.pass: return palette.success;
+      case ValidationStatus.warn: return palette.warning;
+      case ValidationStatus.fail: return palette.error;
+    }
+  }
+
+  Color textColorFor(DeepGuardPalette palette) {
+    switch (status) {
+      case ValidationStatus.pass: return palette.successText;
+      case ValidationStatus.warn: return palette.warningText;
+      case ValidationStatus.fail: return palette.errorText;
+    }
+  }
+
+  Color containerFor(DeepGuardPalette palette) {
+    switch (status) {
+      case ValidationStatus.pass: return palette.successContainer;
+      case ValidationStatus.warn: return palette.warningContainer;
+      case ValidationStatus.fail: return palette.errorContainer;
+    }
+  }
+
+  String get statusBadgeText {
+    switch (status) {
+      case ValidationStatus.pass: return 'Passed';
+      case ValidationStatus.warn: return 'Advisory';
+      case ValidationStatus.fail: return 'Failed';
     }
   }
 

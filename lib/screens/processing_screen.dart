@@ -1,40 +1,45 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 
-import '../theme/app_theme.dart';
-import '../widgets/processing_animation.dart';
-import '../widgets/glass_card.dart';
-import '../widgets/deepguard_app_bar.dart';
+import '../models/analysis_framing.dart';
+import '../models/prediction_result.dart';
 import '../services/ai_service.dart';
 import '../services/preprocessing_service.dart';
-import '../models/prediction_result.dart';
+import '../theme/app_theme.dart';
+import '../widgets/deepguard_app_bar.dart';
+import '../widgets/glass_card.dart';
+import '../widgets/processing_animation.dart';
 import 'upload_screen.dart' show MediaSource;
 
-/// DeepGuard Processing Screen
+typedef CustomInferenceRunner = Future<PredictionResult> Function({
+  required String id,
+  required String filePath,
+  required String mediaType,
+  required MediaSource source,
+  required AnalysisProgressCallback onProgress,
+});
+
+/// DeepGuard Processing Screen (Phase 7 & WCAG 2.2 Level AA).
 ///
-/// Runs the full inference pipeline and shows live step-by-step status text.
-///
-/// IMAGE pipeline:
-///   1. Loading AI model
-///   2. Analyzing image…
-///   3. Running CNN extractor…
-///   4. Hybrid CNN-RNN inference…
-///   5. Neuro-symbolic analysis…
-///
-/// VIDEO pipeline:
-///   1. Loading AI model
-///   2. Extracting video frames…
-///   3. Preparing sequence…
-///   4. Analyzing video…
-///   5. Generating result…
+/// Displays a polished facial-scanning preview and truthful real-time stage
+/// updates driven directly by [AIService] pipeline events:
+/// - 6 truthful stages for Image analysis
+/// - 9 truthful stages for Video analysis
+/// - Measurable progress percentage ONLY when actual units exist (frame sampling)
+/// - Indeterminate progress indicator otherwise
+/// - Full reduced-motion support, cooperative cancellation, and screen-reader
+///   live status announcements.
 class ProcessingScreen extends StatefulWidget {
   final String filePath;
   final String mediaType;
   final MediaSource source;
   final void Function(PredictionResult) onComplete;
+  final CustomInferenceRunner? customRunner;
 
   const ProcessingScreen({
     super.key,
@@ -42,6 +47,7 @@ class ProcessingScreen extends StatefulWidget {
     required this.mediaType,
     required this.source,
     required this.onComplete,
+    this.customRunner,
   });
 
   @override
@@ -49,183 +55,278 @@ class ProcessingScreen extends StatefulWidget {
 }
 
 class _ProcessingScreenState extends State<ProcessingScreen> {
-  int _currentStep = 0;
-  String _statusText = 'Initializing AI engine…';
-
-  final _aiService     = AIService();
+  final _aiService = AIService();
   final _preprocessing = PreprocessingService();
 
-  // Steps are defined per media type at runtime
   late final List<ProcessingStep> _steps;
+  int _currentStep = 0;
+  String _statusTitle = '';
+  String _statusDetail = '';
+  int? _completedUnits;
+  int? _totalUnits;
+  BoxRect? _detectedFaceRect;
+  int? _frameWidth;
+  int? _frameHeight;
+  bool _isCompleted = false;
+  bool _isCancelled = false;
+  int _lastAnnouncedStage = -1;
+
+  bool get _isVideo => widget.mediaType == 'video';
 
   @override
   void initState() {
     super.initState();
+    final table = _isVideo ? AIService.videoStages : AIService.imageStages;
+    _steps = [
+      for (final (title, detail) in table) ProcessingStep(title, detail),
+    ];
+    _statusTitle = _steps.first.title;
+    _statusDetail = _steps.first.description;
+    _startProcessing();
+  }
 
-    if (widget.mediaType == 'video') {
-      _steps = const [
-        ProcessingStep('Loading Model',       'Initializing AI engine…'),
-        ProcessingStep('Extracting Frames',   'Extracting video frames…'),
-        ProcessingStep('Preparing Sequence',  'Preparing 10-frame sequence…'),
-        ProcessingStep('Running Inference',   'Analyzing video…'),
-        ProcessingStep('Generating Result',   'Generating result…'),
-      ];
-    } else {
-      _steps = const [
-        ProcessingStep('Loading Model',       'Initializing AI engine…'),
-        ProcessingStep('Preprocessing',       'Analyzing image…'),
-        ProcessingStep('Extracting Features', 'Running CNN extractor…'),
-        ProcessingStep('Running Prediction',  'Hybrid CNN-RNN inference…'),
-        ProcessingStep('Generating Result',   'Neuro-symbolic analysis…'),
-      ];
+  Future<void> _onProgressUpdate(AnalysisProgressUpdate update) async {
+    if (!mounted || _isCancelled) return;
+    setState(() {
+      _currentStep = update.stageIndex.clamp(0, _steps.length - 1);
+      _statusTitle = update.stageTitle;
+      _statusDetail = update.stageDetail;
+      _completedUnits = update.completedUnits;
+      _totalUnits = update.totalUnits;
+      if (update.detectedFaceRect != null) {
+        _detectedFaceRect = update.detectedFaceRect;
+      }
+      if (update.frameWidth != null) _frameWidth = update.frameWidth;
+      if (update.frameHeight != null) _frameHeight = update.frameHeight;
+    });
+
+    // Announce major stage changes politely without spamming per-frame updates
+    if (_lastAnnouncedStage != update.stageIndex) {
+      _lastAnnouncedStage = update.stageIndex;
+      _announcePolite(
+        'Stage ${update.stageIndex + 1} of ${_steps.length}: ${update.stageTitle}',
+      );
     }
 
-    _startProcessing();
+    // Yield a frame so Flutter paints the updated stage before synchronous work
+    await Future<void>.delayed(const Duration(milliseconds: 16));
+  }
+
+  void _announcePolite(String message) {
+    if (!mounted) return;
+    try {
+      final direction = Directionality.maybeOf(context) ?? TextDirection.ltr;
+      SemanticsService.announce(message, direction);
+    } catch (_) {
+      // Safe fallback in headless test environments
+    }
   }
 
   Future<void> _startProcessing() async {
     final id = _preprocessing.generateProcessingId();
-    final sw = Stopwatch()..start();
-
-    await _advance(0, _steps[0].description);
 
     PredictionResult result;
-    if (widget.mediaType == 'video') {
-      await _advance(1, 'Extracting video frames…');
-      await _advance(2, 'Preparing 10-frame sequence…');
-      await _advance(3, 'Analyzing video…');
-
+    if (widget.customRunner != null) {
+      result = await widget.customRunner!(
+        id: id,
+        filePath: widget.filePath,
+        mediaType: widget.mediaType,
+        source: widget.source,
+        onProgress: _onProgressUpdate,
+      );
+    } else if (_isVideo) {
       result = await _aiService.predictVideo(
-          id: id, filePath: widget.filePath, source: widget.source);
-
-      await _advance(4, 'Generating result…');
+        id: id,
+        filePath: widget.filePath,
+        source: widget.source,
+        onProgress: _onProgressUpdate,
+      );
     } else {
-      await _advance(1, 'Analyzing image…');
-      await _advance(2, 'Running CNN extractor…');
-      await _advance(3, 'Hybrid CNN-RNN inference…');
-
       result = await _aiService.predictImage(
-          id: id, filePath: widget.filePath, source: widget.source);
-
-      await _advance(4, 'Neuro-symbolic analysis…');
+        id: id,
+        filePath: widget.filePath,
+        source: widget.source,
+        onProgress: _onProgressUpdate,
+      );
     }
 
-    // Hold the scan animation briefly so the sweep reads as part of the flow
-    // before the result is revealed. This is a UI pacing delay ONLY — it never
-    // touches the model, the inference, or the reported confidence value.
-    const minScanMs = 2200;
-    final remaining = minScanMs - sw.elapsedMilliseconds;
-    if (remaining > 0) {
-      await Future.delayed(Duration(milliseconds: remaining));
+    if (!mounted || _isCancelled) return;
+
+    if (result.status == PredictionStatus.error) {
+      _announcePolite(
+        'Analysis failed. ${result.errorMessage ?? "Please try another file."}',
+      );
+      widget.onComplete(result);
+      return;
     }
-    if (mounted) widget.onComplete(result);
+
+    setState(() {
+      _currentStep = _steps.length - 1;
+      _isCompleted = true;
+      _statusTitle = 'Analysis complete';
+      _statusDetail = 'Opening authenticity report…';
+      _completedUnits = null;
+      _totalUnits = null;
+    });
+    _announcePolite('Analysis complete. Opening result screen.');
+
+    final holdMs = shouldReduceMotion(context) ? 0 : 280;
+    if (holdMs > 0) {
+      await Future<void>.delayed(Duration(milliseconds: holdMs));
+    }
+    if (mounted && !_isCancelled) {
+      widget.onComplete(result);
+    }
   }
 
-  Future<void> _advance(int step, String status) async {
-    if (!mounted) return;
-    setState(() {
-      _currentStep = step;
-      _statusText  = status;
-    });
-    // Small yield so the UI repaints before heavy work begins
-    await Future.delayed(const Duration(milliseconds: 40));
+  void _cancelAnalysis() {
+    if (_isCancelled || _isCompleted) return;
+    setState(() => _isCancelled = true);
+    _announcePolite('Analysis cancelled.');
+    Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
+    final palette = DeepGuardPalette.of(context);
+    final hasMeasurable = _completedUnits != null &&
+        _totalUnits != null &&
+        _totalUnits! > 0;
+    final measurableFraction = hasMeasurable
+        ? (_completedUnits! / _totalUnits!).clamp(0.0, 1.0)
+        : null;
+
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (_, __) {},
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _cancelAnalysis();
+      },
       child: Scaffold(
-        extendBodyBehindAppBar: true,
-        appBar: const DeepGuardAppBar(title: 'Processing'),
-        body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: DeepGuardColors.backgroundGradient,
-            ),
+        backgroundColor: palette.backgroundSecondary,
+        appBar: DeepGuardAppBar(
+          title: _isVideo ? 'Analyzing Video' : 'Analyzing Image',
+          leading: IconButton(
+            icon: const Icon(Icons.close_rounded),
+            tooltip: 'Cancel analysis',
+            onPressed: _cancelAnalysis,
           ),
-          child: SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                children: [
-                  const SizedBox(height: 8),
-                  // ── Live scan preview of the submitted media ──
-                  MediaScanPreview(
-                    filePath: widget.filePath,
-                    isVideo: widget.mediaType == 'video',
-                  ),
-                  const SizedBox(height: 24),
-                  ProcessingAnimation(
-                    currentStep: _currentStep + 1,
-                    steps: _steps,
-                  ),
-                  const SizedBox(height: 24),
-                  GlassCard(
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  DeepGuardColors.primary.withValues(alpha: 0.8),
+        ),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Facial-scanning media preview
+                MediaScanPreview(
+                  filePath: widget.filePath,
+                  isVideo: _isVideo,
+                  stageTitle: _statusTitle,
+                  completedUnits: _completedUnits,
+                  totalUnits: _totalUnits,
+                  detectedFaceRect: _detectedFaceRect,
+                  frameWidth: _frameWidth,
+                  frameHeight: _frameHeight,
+                  isCompleted: _isCompleted,
+                ),
+                const SizedBox(height: 18),
+
+                // Live status card (stage transitions announced politely via
+                // throttled _announcePolite so TalkBack/VoiceOver never double-reads)
+                GlassCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Semantics(
+                    label:
+                        '$_statusTitle. $_statusDetail. Stage ${_currentStep + 1} of ${_steps.length}.',
+                    child: ExcludeSemantics(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _statusTitle,
+                                  style: TextStyle(
+                                    color: palette.textPrimary,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: palette.processingContainer,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  hasMeasurable
+                                      ? '${(measurableFraction! * 100).round()}%'
+                                      : 'Stage ${_currentStep + 1} of ${_steps.length}',
+                                  style: TextStyle(
+                                    color: palette.primaryText,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _statusDetail,
+                            style: TextStyle(
+                              color: palette.textSecondary,
+                              fontSize: 14.5,
+                              height: 1.4,
                             ),
-                            const SizedBox(width: 10),
-                            Text(
-                              'Processing…',
-                              style: TextStyle(
-                                color: DeepGuardColors.primary.withValues(alpha: 0.8),
-                                fontSize: 13,
-                                letterSpacing: 1,
+                          ),
+                          const SizedBox(height: 14),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: LinearProgressIndicator(
+                              // Numerical progress bar ONLY when measurable
+                              // progress is available (Phase 7.3); otherwise
+                              // indeterminate!
+                              value: _isCompleted ? 1.0 : measurableFraction,
+                              minHeight: 6,
+                              backgroundColor: palette.surfaceElevated,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                _isCompleted
+                                    ? palette.success
+                                    : palette.processingStatus,
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          _statusText,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: DeepGuardColors.textSecondary,
-                            fontSize: 14,
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: LinearProgressIndicator(
-                            value: ((_currentStep + 1) / _steps.length)
-                                .clamp(0.0, 1.0),
-                            backgroundColor: DeepGuardColors.surfaceLight,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              DeepGuardColors.primary.withValues(alpha: 0.6),
-                            ),
-                            minHeight: 4,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Step ${_currentStep + 1} of ${_steps.length}',
-                          style: const TextStyle(
-                            color: DeepGuardColors.textMuted,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 18),
+
+                // Stage-by-stage checklist card
+                GlassCard(
+                  padding: const EdgeInsets.all(16),
+                  child: ProcessingAnimation(
+                    currentStep: _currentStep,
+                    steps: _steps,
+                    isCompleted: _isCompleted,
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Accessible Cancel button
+                OutlinedButton.icon(
+                  onPressed: _isCompleted ? null : _cancelAnalysis,
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  label: const Text('Cancel Analysis'),
+                ),
+              ],
             ),
           ),
         ),
@@ -235,20 +336,31 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Live media scan preview
+// Facial-scanning media preview with reduced-motion support
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Shows the submitted media with a glowing scan line sweeping top-to-bottom so
-/// the user perceives the file being "scanned" as part of the analysis flow.
-/// Purely decorative — it does NOT affect inference or the reported confidence.
 class MediaScanPreview extends StatefulWidget {
   final String filePath;
   final bool isVideo;
+  final String stageTitle;
+  final int? completedUnits;
+  final int? totalUnits;
+  final BoxRect? detectedFaceRect;
+  final int? frameWidth;
+  final int? frameHeight;
+  final bool isCompleted;
 
   const MediaScanPreview({
     super.key,
     required this.filePath,
     required this.isVideo,
+    this.stageTitle = '',
+    this.completedUnits,
+    this.totalUnits,
+    this.detectedFaceRect,
+    this.frameWidth,
+    this.frameHeight,
+    this.isCompleted = false,
   });
 
   @override
@@ -256,30 +368,43 @@ class MediaScanPreview extends StatefulWidget {
 }
 
 class _MediaScanPreviewState extends State<MediaScanPreview>
-    with TickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   static const double _height = 220;
-  static const int _frameSlots = 10; // matches the model's 10-frame input
 
-  late final AnimationController _scan;    // sweeping scan line (loops)
-  late final AnimationController _extract; // one-shot frame-extraction fill
-  Uint8List? _thumb;                        // representative video frame
+  late final AnimationController _scan;
+  Uint8List? _thumb;
 
   @override
   void initState() {
     super.initState();
     _scan = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1900),
-    )..repeat();
-    _extract = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2000),
-    )..forward();
+      duration: const Duration(milliseconds: 2200),
+    )..repeat(reverse: true);
     if (widget.isVideo) _loadThumb();
   }
 
-  /// Fetches ONE representative frame purely for the preview. Decorative only —
-  /// the real 10-frame extraction happens independently in the model pipeline.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncAnimation();
+  }
+
+  @override
+  void didUpdateWidget(covariant MediaScanPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncAnimation();
+  }
+
+  void _syncAnimation() {
+    final reduce = shouldReduceMotion(context) || widget.isCompleted;
+    if (reduce && _scan.isAnimating) {
+      _scan.stop();
+    } else if (!reduce && !_scan.isAnimating) {
+      _scan.repeat(reverse: true);
+    }
+  }
+
   Future<void> _loadThumb() async {
     try {
       final bytes = await VideoThumbnail.thumbnailData(
@@ -293,93 +418,150 @@ class _MediaScanPreviewState extends State<MediaScanPreview>
       if (mounted && bytes != null && bytes.isNotEmpty) {
         setState(() => _thumb = bytes);
       }
-    } catch (_) {
-      // If the frame can't be decoded we simply keep the icon tile.
-    }
+    } catch (_) {}
   }
 
   @override
   void dispose() {
     _scan.dispose();
-    _extract.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        height: _height,
-        width: double.infinity,
-        color: DeepGuardColors.surfaceDark,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // ── The media itself ──
-            if (!widget.isVideo)
-              Image.file(
-                File(widget.filePath),
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => _placeholderTile(
-                    Icons.broken_image_outlined, 'Preview unavailable'),
-              )
-            else if (_thumb != null)
-              Image.memory(
-                _thumb!,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) =>
-                    _placeholderTile(Icons.videocam_outlined, 'Video frame'),
-              )
-            else
-              _placeholderTile(
-                  Icons.movie_creation_outlined, 'Extracting frame…'),
+    final palette = DeepGuardPalette.of(context);
+    final reduceMotion = shouldReduceMotion(context);
+    final accent =
+        widget.isCompleted ? const Color(0xFF36CA8D) : const Color(0xFF35C9E2);
 
-            // subtle scanner tint
-            Container(color: DeepGuardColors.primary.withValues(alpha: 0.05)),
-
-            // ── Animated sweep ──
-            AnimatedBuilder(
-              animation: _scan,
-              builder: (context, _) {
-                final lineY = _scan.value * _height;
+    return Semantics(
+      image: true,
+      label: widget.isVideo
+          ? 'Video sample preview during authenticity analysis. Current stage: ${widget.stageTitle}.'
+          : 'Image sample preview during facial authenticity analysis. Current stage: ${widget.stageTitle}.',
+      child: ExcludeSemantics(
+        child: Container(
+          height: _height,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: palette.brandNavy,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: palette.border, width: 1.2),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(13),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
                 return Stack(
                   fit: StackFit.expand,
                   children: [
-                    // trailing translucent band above the line
-                    Positioned(
-                      top: (lineY - 80).clamp(0.0, _height),
-                      left: 0,
-                      right: 0,
-                      height: 80,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              DeepGuardColors.primary.withValues(alpha: 0.0),
-                              DeepGuardColors.primary.withValues(alpha: 0.20),
-                            ],
+                    // Media content
+                    if (!widget.isVideo)
+                      Image.file(
+                        File(widget.filePath),
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => _placeholderTile(
+                          Icons.image_outlined,
+                          'Analyzing image…',
+                        ),
+                      )
+                    else if (_thumb != null)
+                      Image.memory(
+                        _thumb!,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => _placeholderTile(
+                          Icons.videocam_outlined,
+                          'Analyzing video…',
+                        ),
+                      )
+                    else
+                      _placeholderTile(
+                        Icons.movie_creation_outlined,
+                        '',
+                      ),
+
+                    // Subtle contrast scrim
+                    ColoredBox(
+                      color: Colors.black.withValues(alpha: 0.18),
+                    ),
+
+                    // Facial-scanning overlay (bounding box + landmarks + smooth scan line)
+                    AnimatedBuilder(
+                      animation: _scan,
+                      builder: (context, _) {
+                        return CustomPaint(
+                          painter: _FacialScanOverlayPainter(
+                            scanFraction:
+                                reduceMotion ? 0.5 : _scan.value,
+                            showMovingScanLine:
+                                !reduceMotion && !widget.isCompleted,
+                            accentColor: accent,
+                            detectedFaceRect: widget.detectedFaceRect,
+                            frameWidth: widget.frameWidth,
+                            frameHeight: widget.frameHeight,
                           ),
+                        );
+                      },
+                    ),
+
+                    // Truthful video frame-extraction strip (only when real
+                    // frame counts are reported!)
+                    if (widget.isVideo &&
+                        widget.totalUnits != null &&
+                        widget.totalUnits! > 0)
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        bottom: 44,
+                        child: _buildTruthfulFrameStrip(
+                          completed: widget.completedUnits ?? 0,
+                          total: widget.totalUnits!,
+                          accent: accent,
                         ),
                       ),
-                    ),
-                    // the glowing scan line
+
+                    // Bottom status badge
                     Positioned(
-                      top: lineY - 1,
-                      left: 0,
-                      right: 0,
+                      left: 12,
+                      bottom: 10,
                       child: Container(
-                        height: 2,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
                         decoration: BoxDecoration(
-                          color: DeepGuardColors.primary,
-                          boxShadow: [
-                            BoxShadow(
-                              color: DeepGuardColors.primary
-                                  .withValues(alpha: 0.85),
-                              blurRadius: 12,
-                              spreadRadius: 1,
+                          color: Colors.black.withValues(alpha: 0.72),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: accent.withValues(alpha: 0.65),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              widget.isCompleted
+                                  ? Icons.check_circle_rounded
+                                  : (widget.detectedFaceRect != null
+                                      ? Icons.face_retouching_natural
+                                      : Icons.radar_rounded),
+                              size: 15,
+                              color: accent,
+                            ),
+                            const SizedBox(width: 7),
+                            Text(
+                              widget.isCompleted
+                                  ? 'Scan Complete'
+                                  : (widget.detectedFaceRect != null
+                                      ? 'Face Region Located'
+                                      : (widget.isVideo
+                                          ? 'Analyzing Video Sequence'
+                                          : 'Scanning Image')),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ],
                         ),
@@ -389,162 +571,212 @@ class _MediaScanPreviewState extends State<MediaScanPreview>
                 );
               },
             ),
+          ),
+        ),
+      ),
+    );
+  }
 
-            // ── Corner brackets ──
-            ..._cornerBrackets(),
-
-            // ── Frame-extraction filmstrip (video only) ──
-            if (widget.isVideo)
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 38,
-                child: AnimatedBuilder(
-                  animation: _extract,
-                  builder: (context, _) {
-                    final filled = (_extract.value * _frameSlots)
-                        .round()
-                        .clamp(0, _frameSlots);
-                    return Row(
-                      children: [
-                        for (int i = 0; i < _frameSlots; i++) ...[
-                          Expanded(
-                            child: Container(
-                              height: 14,
-                              decoration: BoxDecoration(
-                                color: i < filled
-                                    ? DeepGuardColors.primary
-                                    : Colors.white.withValues(alpha: 0.10),
-                                borderRadius: BorderRadius.circular(2),
-                                border: Border.all(
-                                  width: 1,
-                                  color: DeepGuardColors.primary.withValues(
-                                      alpha: i < filled ? 1.0 : 0.4),
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (i != _frameSlots - 1) const SizedBox(width: 3),
-                        ],
-                        const SizedBox(width: 8),
-                        Text(
-                          '$filled/$_frameSlots',
-                          style: const TextStyle(
-                            color: DeepGuardColors.primary,
-                            fontSize: 11,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-
-            // ── Scanning label ──
-            Positioned(
-              left: 12,
-              bottom: 10,
+  Widget _buildTruthfulFrameStrip({
+    required int completed,
+    required int total,
+    required Color accent,
+  }) {
+    final safeCompleted = completed.clamp(0, total);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.68),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          for (int i = 0; i < total; i++) ...[
+            Expanded(
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 5),
+                height: 8,
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(
-                    color: DeepGuardColors.primary.withValues(alpha: 0.4),
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 8,
-                      height: 8,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 1.5,
-                        color: DeepGuardColors.primary,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      widget.isVideo ? 'EXTRACTING FRAMES' : 'SCANNING IMAGE',
-                      style: const TextStyle(
-                        color: DeepGuardColors.primary,
-                        fontSize: 11,
-                        letterSpacing: 2,
-                        fontFamily: 'monospace',
-                      ),
-                    ),
-                  ],
+                  color: i < safeCompleted
+                      ? accent
+                      : Colors.white.withValues(alpha: 0.20),
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
+            if (i != total - 1) const SizedBox(width: 3),
           ],
-        ),
+          const SizedBox(width: 8),
+          Text(
+            '$safeCompleted/$total frames',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _placeholderTile(IconData icon, String label) {
-    return Container(
-      color: DeepGuardColors.surfaceDark,
+    return ColoredBox(
+      color: const Color(0xFF101C36),
       child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon,
-                color: DeepGuardColors.primary.withValues(alpha: 0.5),
-                size: 40),
-            const SizedBox(height: 8),
-            Text(label,
-                style: const TextStyle(
-                    color: DeepGuardColors.textMuted,
-                    fontSize: 11)),
-          ],
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: Colors.white54, size: 36),
+              if (label.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13.5,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
   }
+}
 
-  List<Widget> _cornerBrackets() {
-    const double len = 22;
-    const double thick = 2;
-    const double pad = 8;
-    Widget bracket(Alignment a) {
-      final top = a.y < 0, bottom = a.y > 0, left = a.x < 0, right = a.x > 0;
-      return Positioned(
-        top: top ? pad : null,
-        bottom: bottom ? pad : null,
-        left: left ? pad : null,
-        right: right ? pad : null,
-        child: Container(
-          width: len,
-          height: len,
-          decoration: BoxDecoration(
-            border: Border(
-              top: top
-                  ? BorderSide(color: DeepGuardColors.primary, width: thick)
-                  : BorderSide.none,
-              bottom: bottom
-                  ? BorderSide(color: DeepGuardColors.primary, width: thick)
-                  : BorderSide.none,
-              left: left
-                  ? BorderSide(color: DeepGuardColors.primary, width: thick)
-                  : BorderSide.none,
-              right: right
-                  ? BorderSide(color: DeepGuardColors.primary, width: thick)
-                  : BorderSide.none,
-            ),
-          ),
-        ),
+class _FacialScanOverlayPainter extends CustomPainter {
+  final double scanFraction;
+  final bool showMovingScanLine;
+  final Color accentColor;
+  final BoxRect? detectedFaceRect;
+  final int? frameWidth;
+  final int? frameHeight;
+
+  const _FacialScanOverlayPainter({
+    required this.scanFraction,
+    required this.showMovingScanLine,
+    required this.accentColor,
+    this.detectedFaceRect,
+    this.frameWidth,
+    this.frameHeight,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Compute either the real detected face bounding box (mapped via BoxFit.contain)
+    // or a clean centered facial-detection guide frame.
+    Rect targetBox;
+    final face = detectedFaceRect;
+    if (face != null &&
+        face.isValid &&
+        frameWidth != null &&
+        frameWidth! > 0 &&
+        frameHeight != null &&
+        frameHeight! > 0) {
+      final src = Size(frameWidth!.toDouble(), frameHeight!.toDouble());
+      final fitted = applyBoxFit(BoxFit.contain, src, size);
+      final dest = fitted.destination;
+      final offsetX = (size.width - dest.width) / 2.0;
+      final offsetY = (size.height - dest.height) / 2.0;
+      final scale = dest.width / src.width;
+      targetBox = Rect.fromLTWH(
+        offsetX + face.left * scale,
+        offsetY + face.top * scale,
+        face.width * scale,
+        face.height * scale,
+      ).intersect(Offset.zero & size);
+    } else {
+      final boxSide = (size.shortestSide * 0.48).clamp(72.0, 128.0);
+      targetBox = Rect.fromCenter(
+        center: Offset(size.width / 2, size.height * 0.46),
+        width: boxSide,
+        height: boxSide * 1.12,
       );
     }
-    return [
-      bracket(Alignment.topLeft),
-      bracket(Alignment.topRight),
-      bracket(Alignment.bottomLeft),
-      bracket(Alignment.bottomRight),
+
+    // Subtle bounding box + corner brackets
+    final guidePaint = Paint()
+      ..color = accentColor.withValues(alpha: 0.38)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(targetBox, const Radius.circular(8)),
+      guidePaint,
+    );
+
+    final cornerPaint = Paint()
+      ..color = accentColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.4
+      ..strokeCap = StrokeCap.round;
+    final cornerLen = (targetBox.shortestSide * 0.22).clamp(10.0, 20.0);
+
+    void drawCorner(Offset origin, double dx, double dy) {
+      canvas.drawLine(origin, origin + Offset(dx, 0), cornerPaint);
+      canvas.drawLine(origin, origin + Offset(0, dy), cornerPaint);
+    }
+
+    drawCorner(targetBox.topLeft, cornerLen, cornerLen);
+    drawCorner(targetBox.topRight, -cornerLen, cornerLen);
+    drawCorner(targetBox.bottomLeft, cornerLen, -cornerLen);
+    drawCorner(targetBox.bottomRight, -cornerLen, -cornerLen);
+
+    // Subtle facial feature alignment indicators (eyes, nose bridge, mouth)
+    final dotPaint = Paint()
+      ..color = accentColor.withValues(alpha: 0.65)
+      ..style = PaintingStyle.fill;
+    final cx = targetBox.center.dx;
+    final cy = targetBox.center.dy;
+    final w = targetBox.width;
+    final h = targetBox.height;
+    final landmarks = [
+      Offset(cx - w * 0.20, cy - h * 0.14),
+      Offset(cx + w * 0.20, cy - h * 0.14),
+      Offset(cx, cy + h * 0.02),
+      Offset(cx - w * 0.15, cy + h * 0.20),
+      Offset(cx + w * 0.15, cy + h * 0.20),
     ];
+    for (final pt in landmarks) {
+      canvas.drawCircle(pt, 2.2, dotPaint);
+    }
+
+    // Smooth horizontal scanning line (omitted when reduced motion is enabled)
+    if (showMovingScanLine) {
+      final lineY = 12 + scanFraction * (size.height - 24);
+      final glowRect = Rect.fromLTWH(0, (lineY - 28).clamp(0.0, size.height), size.width, 28);
+      final glowPaint = Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            accentColor.withValues(alpha: 0.0),
+            accentColor.withValues(alpha: 0.18),
+          ],
+        ).createShader(glowRect);
+      canvas.drawRect(glowRect, glowPaint);
+
+      final linePaint = Paint()
+        ..shader = LinearGradient(
+          colors: [
+            Colors.transparent,
+            accentColor.withValues(alpha: 0.85),
+            accentColor,
+            accentColor.withValues(alpha: 0.85),
+            Colors.transparent,
+          ],
+        ).createShader(Rect.fromLTWH(0, lineY, size.width, 2));
+      canvas.drawRect(Rect.fromLTWH(0, lineY - 1, size.width, 2), linePaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _FacialScanOverlayPainter oldDelegate) {
+    return oldDelegate.scanFraction != scanFraction ||
+        oldDelegate.showMovingScanLine != showMovingScanLine ||
+        oldDelegate.accentColor != accentColor ||
+        oldDelegate.detectedFaceRect != detectedFaceRect;
   }
 }

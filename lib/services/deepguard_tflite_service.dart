@@ -1,4 +1,5 @@
 import 'app_log.dart' as dev;
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
@@ -75,6 +76,10 @@ class DeepGuardTFLiteService {
   // ── Asset paths ────────────────────────────────────────────────────────────
   static const String _imageModelAsset = 'assets/models/deepguard_image.tflite';
   static const String _videoModelAsset = 'assets/models/deepguard_video.tflite';
+  static const String _imageGradCamAsset =
+      'assets/models/deepguard_image_gradcam.tflite';
+  static const String _videoGradCamAsset =
+      'assets/models/deepguard_video_gradcam.tflite';
 
   // ── Model dimensions ───────────────────────────────────────────────────────
   // Owned by InferenceTensors so the buffer layout and these constants cannot
@@ -117,6 +122,8 @@ class DeepGuardTFLiteService {
     await _worker.start(
       imageAsset: _imageModelAsset,
       videoAsset: _videoModelAsset,
+      imageGradCamAsset: _imageGradCamAsset,
+      videoGradCamAsset: _videoGradCamAsset,
     );
     _imageReady = true;
     _videoReady = true;
@@ -161,6 +168,8 @@ class DeepGuardTFLiteService {
   Future<DeepGuardDetectionResult> analyzeImage(
     img.Image rawImage, {
     MediaSource source = MediaSource.gallery,
+    FutureOr<void> Function()? onVisualFeaturesStarted,
+    FutureOr<void> Function()? onInferenceStarted,
   }) async {
     if (!_imageReady) await _loadImageModel();
 
@@ -173,13 +182,14 @@ class DeepGuardTFLiteService {
       final origH = rawImage.height;
       final origChannels = rawImage.numChannels;
 
-      // Resize to 128×128  (average ≈ cv2.INTER_AREA — matches training Cell 18)
-      // and build the raw float32 [0.0, 255.0] buffer. These stay on the calling
-      // isolate; only the native run moves off it. copyResize of a full-size
-      // camera frame is itself a main-thread cost and is the known remaining
-      // blocker — see "WHAT STILL BLOCKS THE UI THREAD" in the class comment.
+      await onVisualFeaturesStarted?.call();
+
+      // Resize to 128×128 (average ≈ cv2.INTER_AREA — matches training Cell 18)
+      // and build the raw float32 [0.0, 255.0] buffer.
       final resized = InferenceTensors.resizeForImage(rawImage);
       final input   = InferenceTensors.imageFlat(resized);
+
+      await onInferenceStarted?.call();
 
       final outcome = await _worker.runImage(input);
 
@@ -221,6 +231,8 @@ class DeepGuardTFLiteService {
       return DeepGuardDetectionResult.fromFakeProbability(
         fakeProbability: fakeProbability,
         latencyMs: latencyMs,
+        videoHeatmaps: outcome.videoHeatmaps,
+        videoFrameScores: outcome.videoFrameScores,
       );
     } catch (e, st) {
       dev.log('[DeepGuard] analyzeImage ERROR: $e\n$st', name: 'DeepGuard');
@@ -239,6 +251,9 @@ class DeepGuardTFLiteService {
   Future<DeepGuardDetectionResult> analyzeVideo(
     List<img.Image> frames, {
     MediaSource source = MediaSource.gallery,
+    FutureOr<void> Function()? onSpatialFeaturesStarted,
+    FutureOr<void> Function()? onTemporalFeaturesStarted,
+    FutureOr<void> Function()? onEvaluatingStarted,
   }) async {
     if (!_videoReady) await _loadVideoModel();
     if (frames.isEmpty) {
@@ -260,10 +275,17 @@ class DeepGuardTFLiteService {
       final origW = sequence[0].width;
       final origH = sequence[0].height;
 
+      await onSpatialFeaturesStarted?.call();
+
       // Build the [1, 10, 128, 128, 3] raw float32 [0.0, 255.0] buffer, then
       // run it on the inference isolate.
       final input   = InferenceTensors.videoFlat(sequence);
+
+      await onTemporalFeaturesStarted?.call();
+
       final outcome = await _worker.runVideo(input);
+
+      await onEvaluatingStarted?.call();
 
       final fakeProbability = outcome.fakeProbability.clamp(0.0, 1.0);
       final latencyMs = DateTime.now().millisecondsSinceEpoch - start;
@@ -304,6 +326,8 @@ class DeepGuardTFLiteService {
       return DeepGuardDetectionResult.fromFakeProbability(
         fakeProbability: fakeProbability,
         latencyMs: latencyMs,
+        videoHeatmaps: outcome.videoHeatmaps,
+        videoFrameScores: outcome.videoFrameScores,
       );
     } catch (e, st) {
       dev.log('[DeepGuard] analyzeVideo ERROR: $e\n$st', name: 'DeepGuard');
